@@ -2,5 +2,5 @@
 members = [
     "amqp-client",
     "amqp-protocol",
-    "amqp-client-macros"
+    "amqp-macros"
 ]

@@ -1,7 +1,7 @@
 use amqp;
 use log::{info};
 use amqp::response;
-use amqp_client_macros::amqp_method;
+use amqp_macros::amqp_method;
 // fn main() -> response::Result<()> {
 //     env_logger::init();
 //

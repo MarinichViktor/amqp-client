@@ -10,4 +10,4 @@ anyhow = "1.0.66"
 byteorder = "1.4.3"
 log = "0.4.17"
 env_logger = "0.9.3"
-amqp_client_macros  = { path = "../amqp-client-macros" }
+amqp_macros  = { path = "../amqp-macros" }
