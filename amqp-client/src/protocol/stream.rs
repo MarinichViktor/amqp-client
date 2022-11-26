@@ -1,15 +1,12 @@
-use std::collections::HashMap;
 use std::net::TcpStream;
 use std::io::{Cursor, Read, Write};
 use crate::response;
 use super::{frame::{Frame}};
-// use byteorder::{BigEndian, ReadBytesExt};
-use crate::protocol::decoder::Decode;
 use log::{info};
-// use crate::protocol::encoder::Encode;
-// use crate::protocol::frame::encoding::encode_method_frame;
-use crate::protocol::frame::{ConnectionMethod, MethodFrame};
-use crate::protocol::method::{ServerProperty};
+use amqp_protocol::dec::Decode;
+use crate::protocol::frame::{MethodFrame};
+use crate::protocol::methods::connection::{ConnMethodArgs, StartMethodArgs};
+use crate::protocol::methods::get_frame_id;
 
 static PROTOCOL_HEADER: [u8;8] = [65,77,81,80,0,0,9,1];
 
@@ -38,30 +35,41 @@ impl AmqpStream {
     }
   }
 
-  pub fn protocol_header(& mut self) -> response::Result<()> {
-    self.tcp_stream.write_all(&PROTOCOL_HEADER)?;
-    Ok(())
-  }
-
-  pub fn start_ok(
-    &mut self,
-    client_properties: HashMap<String, ServerProperty>,
-    mechanism: String,
-    response: String,
-    locale: String
-  ) -> response::Result<()> {
-    let mut args = vec![
-      ServerProperty::PropTable(client_properties),
-      ServerProperty::ShortStr(mechanism),
-      ServerProperty::LongStr(response),
-      ServerProperty::ShortStr(locale),
-    ];
-
-    // let raw_frame = encode_method_frame(0, args)?;
-    // self.tcp_stream.write_all(&raw_frame)?;
+  pub fn invoke(chan: i16, args: &MethodFrame) -> response::Result<()> {
 
     Ok(())
   }
+
+  pub fn send_raw(&mut self, buff: &[u8]) -> response::Result<()> {
+    self.tcp_stream.write_all(buff)?;
+    Ok(())
+  }
+
+  //
+  // pub fn protocol_header(& mut self) -> response::Result<()> {
+  //   self.tcp_stream.write_all(&PROTOCOL_HEADER)?;
+  //   Ok(())
+  // }
+
+  // pub fn start_ok(
+  //   &mut self,
+  //   client_properties: HashMap<String, ServerProperty>,
+  //   mechanism: String,
+  //   response: String,
+  //   locale: String
+  // ) -> response::Result<()> {
+  //   let mut args = vec![
+  //     Property::PropTable(client_properties),
+  //     Property::ShortStr(mechanism),
+  //     Property::LongStr(response),
+  //     Property::ShortStr(locale),
+  //   ];
+  //
+  //   // let raw_frame = encode_method_frame(0, args)?;
+  //   // self.tcp_stream.write_all(&raw_frame)?;
+  //
+  //   Ok(())
+  // }
 
   pub fn next_method_frame(&mut self) -> response::Result<MethodFrame> {
     let mut frame_descriptor = self.next_frame()?;
@@ -94,7 +102,7 @@ impl AmqpStream {
     match frame_type {
       1 => {
         let mut meta = Cursor::new(body[..4].to_vec());
-        let mut payload = Cursor::new(body[4..].to_vec());
+        let mut payload =body[4..].to_vec();
         let class_id = meta.read_short()?;
         let method_id = meta.read_short()?;
 
@@ -102,19 +110,9 @@ impl AmqpStream {
           10 => {
             match method_id {
               10 => {
+                let method: StartMethodArgs = payload.try_into()?;
                 return Ok(
-                  Frame::Method(
-                    MethodFrame::Connection(
-                      ConnectionMethod::Start {
-                        channel,
-                        ver_major: payload.read_byte()?,
-                        ver_minor: payload.read_byte()?,
-                        properties: payload.read_prop_table()?,
-                        mechanisms: payload.read_long_str()?.split(' ').map( |s| s.into()).collect(),
-                        locales: payload.read_long_str()?.split(' ').map( |s| s.into()).collect()
-                      }
-                    )
-                  )
+                  Frame::Method(MethodFrame::Conn(ConnMethodArgs::Start(method)))
                 )
               }
               _ => {

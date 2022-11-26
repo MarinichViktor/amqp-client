@@ -1,11 +1,11 @@
-use std::io::{Cursor, Write};
-use crate::protocol::decoder::Decode;
-use crate::protocol::encoder::Encode;
-use crate::protocol::method::{PropTable, ServerProperty};
-use crate::response;
+use std::io::Write;
+use amqp_protocol::enc::Encode;
+use crate::protocol::methods::connection::ConnMethodArgs;
+use crate::protocol::methods::get_frame_id;
 
 pub mod encoding;
 pub mod decoding;
+
 
 #[derive(Debug)]
 pub enum Frame {
@@ -14,8 +14,58 @@ pub enum Frame {
 }
 
 #[derive(Debug)]
-pub enum MethodFrame {
-  Connection(ConnectionMethod)
+pub struct AmqpFrame {
+  ty: u8,
+  chan: i16,
+  size: i32,
+  body: Vec<u8>
+}
+
+#[derive(Debug)]
+pub struct MethodFrame {
+  chan: i16,
+  args: MethodFrameArgs
+}
+
+#[derive(Debug)]
+pub enum MethodFrameArgs {
+  Conn(ConnMethodArgs)
+}
+
+impl Into<Vec<u8>> for MethodFrameArgs {
+  fn into(self) -> Vec<u8> {
+    match self {
+      MethodFrameArgs::Conn(m) => {
+        match m {
+          ConnMethodArgs::Start(x) => {
+            x.try_into().unwrap()
+          }
+          ConnMethodArgs::StartOk(x) => {
+            x.try_into().unwrap()
+          }
+        }
+      }
+    }
+  }
+}
+
+
+
+impl Into<Vec<u8>> for MethodFrame {
+  fn into(self) -> Vec<u8> {
+    let mut frame_buff = vec![];
+    frame_buff.write_byte(1).unwrap();
+    frame_buff.write_short(self.chan).unwrap();
+    let (class_id, method_id) = get_frame_id(& self.args);
+
+    let mut args_buff = vec![];
+    args_buff.write_short(class_id).unwrap();
+    args_buff.write_short(method_id).unwrap();
+    let args: Vec<u8> = self.args.try_into().unwrap();
+    args_buff.write(&self.args.try_into().unwrap());
+
+    frame_buff
+  }
 }
 
 // #[derive(Debug)]
@@ -34,25 +84,6 @@ pub enum MethodFrame {
 //   #[long_str]
 //   locales: String,
 // }
-
-#[derive(Debug)]
-pub enum ConnectionMethod {
-  Start {
-    channel: i16,
-    ver_major: u8,
-    ver_minor: u8,
-    properties: PropTable,
-    mechanisms: Vec<String>,
-    locales: Vec<String>,
-  },
-  StartOk {
-    channel: i16,
-    properties: PropTable,
-    mechanism: String,
-    response: String,
-    locale: String,
-  },
-}
 
 impl MethodFrame {
   // pub fn to_bytes(self) -> response::Result<Vec<u8>> {

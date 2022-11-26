@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use log::info;
-use crate::protocol::frame::{ConnectionMethod::{Start, StartOk}, Frame, MethodFrame};
-use crate::protocol::method::{ServerProperty, StartMethod, StartOkMethod};
+use crate::protocol::frame::{Frame, MethodFrame};
 use crate::protocol::stream::ConnectionOpts;
 use super::protocol::stream::{AmqpStream};
 use crate::response;
+
+pub struct DefaultChan {
+
+}
 
 pub struct Connection {
   amqp_stream: Arc<Mutex<AmqpStream>>
@@ -30,6 +32,7 @@ impl Connection {
   pub fn connect(&mut self) -> response::Result<()> {
     let mut amqp_stream = self.amqp_stream.lock().unwrap();
     amqp_stream.protocol_header()?;
+    let frame = amqp_stream.next_method_frame()?;
 
     // let MethodFrame::Connection(
     //   Start {
