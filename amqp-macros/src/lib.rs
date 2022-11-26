@@ -174,6 +174,8 @@ fn generate_into_byte_vec_trait_impl(method: &MethodItem) -> proc_macro2::TokenS
 
         fn try_into(self) -> amqp_protocol::response::Result<Vec<u8>, Self::Error> {
           let mut data = vec![];
+          amqp_protocol::enc::Encode::write_short(&mut data, self.class_id())?;
+          amqp_protocol::enc::Encode::write_short(&mut data, self.method_id())?;
 
           #( #fields_to_byte );*
 
@@ -235,6 +237,10 @@ fn generate_from_byte_vec_trait_impl(method: &MethodItem) -> proc_macro2::TokenS
 
         fn try_from(data: Vec<u8>) -> amqp_protocol::response::Result<Self, Self::Error> {
           let mut data = std::io::Cursor::new(data);
+          // skip class_id
+          let _ = amqp_protocol::dec::Decode::read_short(&mut data)?;
+          // skip method_id
+          let _ = amqp_protocol::dec::Decode::read_short(&mut data)?;
           #( #fields_from_byte );*
 
           Ok(Self {
