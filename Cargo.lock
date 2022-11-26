@@ -23,23 +23,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "amqp-protocol"
+name = "amqp_macros"
 version = "0.1.0"
 dependencies = [
- "amqp_macros",
+ "amqp_protocol",
+ "anyhow",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "amqp_protocol"
+version = "0.1.0"
+dependencies = [
  "anyhow",
  "byteorder",
  "env_logger",
  "log",
-]
-
-[[package]]
-name = "amqp_macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
