@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Cursor};
 use byteorder::{BigEndian, ReadBytesExt};
-use log::info;
+use log::{debug, info};
 use crate::types::Property;
 use crate::response;
 
@@ -115,17 +115,14 @@ impl <T: std::io::Read + ?Sized> Decode for T {
   fn read_prop_table(&mut self) -> response::Result<HashMap<String, Property>> {
     let mut table = HashMap::new();
     let table_size = Decode::read_uint(self)?;
-    info!("Table size {}", table_size);
-    let mut bb = Cursor::new([0, 0, 0, 168].to_vec());
-    let tablet_size = Decode::read_uint(& mut bb)?;
-    info!("ttttTable size {}", tablet_size);
+    debug!("Table size {}", table_size);
     let mut buff = vec![0_u8; table_size as usize];
     self.read_exact(& mut buff)?;
     let mut cursor = Cursor::new(buff);
 
     while cursor.position() < table_size as u64 - 1 {
       let pair = cursor.read_field_value_pair()?;
-      info!("Table pair {:?}", &pair);
+      debug!("Table pair {:?}", &pair);
       table.insert(pair.0, pair.1);
     }
 

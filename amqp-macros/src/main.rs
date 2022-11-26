@@ -1,7 +1,7 @@
 use amqp_macros::amqp_method;
 
 #[derive(Debug)]
-#[amqp_method(c_id=23, m_id=532)]
+#[amqp_method(c_id=23, m_id=14)]
 struct AmqpMethod {
     #[byte]
     ver_maj: u8,
@@ -12,7 +12,7 @@ struct AmqpMethod {
 fn main() {
     let d = AmqpMethod {
         ver_maj: 12,
-        ver_min: 132
+        ver_min: 15
     };
     let v: Vec<u8> = d.try_into().unwrap();
     println!("data {:?}", v);

@@ -1,14 +1,13 @@
 use std::net::TcpStream;
 use std::io::{Cursor, Read, Write};
+use anyhow::bail;
 use crate::response;
-use super::{frame::{Frame}};
 use log::{info};
 use amqp_protocol::dec::Decode;
-use crate::protocol::frame::{MethodFrame};
-use crate::protocol::methods::connection::{ConnMethodArgs, StartMethodArgs};
-use crate::protocol::methods::get_frame_id;
-
-static PROTOCOL_HEADER: [u8;8] = [65,77,81,80,0,0,9,1];
+use amqp_protocol::enc::Encode;
+use crate::protocol::frame::{Frame, Method, MethodFrame};
+use crate::protocol::methods::connection::{CLASS_CONNECTION, METHOD_START, METHOD_STARTOK, METHOD_TUNE, METHOD_TUNEOK};
+// static PROTOCOL_HEADER: [u8;8] = [65,77,81,80,0,0,9,1];
 
 pub struct AmqpStream {
   tcp_stream: TcpStream,
@@ -35,7 +34,16 @@ impl AmqpStream {
     }
   }
 
-  pub fn invoke(chan: i16, args: &MethodFrame) -> response::Result<()> {
+  pub fn invoke<T: TryInto<Vec<u8>, Error=response::Error>>(&mut self, chan: i16, args: T) -> response::Result<()> {
+    let mut frame_buff = vec![];
+    frame_buff.write_byte(1)?;
+    frame_buff.write_short(chan)?;
+
+    let arg_buff = args.try_into()?;
+    Encode::write_uint(&mut frame_buff, arg_buff.len() as u32)?;
+    frame_buff.write(&arg_buff)?;
+    frame_buff.write_byte(0xCE)?;
+    self.send_raw(&frame_buff)?;
 
     Ok(())
   }
@@ -45,35 +53,9 @@ impl AmqpStream {
     Ok(())
   }
 
-  //
-  // pub fn protocol_header(& mut self) -> response::Result<()> {
-  //   self.tcp_stream.write_all(&PROTOCOL_HEADER)?;
-  //   Ok(())
-  // }
-
-  // pub fn start_ok(
-  //   &mut self,
-  //   client_properties: HashMap<String, ServerProperty>,
-  //   mechanism: String,
-  //   response: String,
-  //   locale: String
-  // ) -> response::Result<()> {
-  //   let mut args = vec![
-  //     Property::PropTable(client_properties),
-  //     Property::ShortStr(mechanism),
-  //     Property::LongStr(response),
-  //     Property::ShortStr(locale),
-  //   ];
-  //
-  //   // let raw_frame = encode_method_frame(0, args)?;
-  //   // self.tcp_stream.write_all(&raw_frame)?;
-  //
-  //   Ok(())
-  // }
-
   pub fn next_method_frame(&mut self) -> response::Result<MethodFrame> {
-    let mut frame_descriptor = self.next_frame()?;
-    let mut frame;
+    let frame_descriptor = self.next_frame()?;
+    let frame;
 
     loop {
       match frame_descriptor {
@@ -81,9 +63,9 @@ impl AmqpStream {
           frame = body;
           break;
         }
-        _ => {
-          frame_descriptor = self.next_frame()?;
-        }
+        // _ => {
+        //   frame_descriptor = self.next_frame()?;
+        // }
       }
     }
 
@@ -91,37 +73,42 @@ impl AmqpStream {
   }
 
   pub fn next_frame(&mut self) -> response::Result<Frame> {
+    info!("Reading next frame");
     let mut frame_header = self.read_cursor(7)?;
+    info!("Processing frame header");
     let frame_type = frame_header.read_byte()?;
     let channel = frame_header.read_short()?;
     let size = Decode::read_int(&mut frame_header)?;
-    let mut body = self.read(size as usize)?;
+    info!("Next frame size {}", size);
+    let body = self.read(size as usize)?;
     // read frame end byte
     self.read(1)?;
+    info!("Frame readed");
 
-    match frame_type {
+    let frame = match frame_type {
       1 => {
         let mut meta = Cursor::new(body[..4].to_vec());
-        let mut payload =body[4..].to_vec();
         let class_id = meta.read_short()?;
         let method_id = meta.read_short()?;
 
         match class_id {
-          10 => {
-            match method_id {
-              10 => {
-                let method: StartMethodArgs = payload.try_into()?;
-                return Ok(
-                  Frame::Method(MethodFrame::Conn(ConnMethodArgs::Start(method)))
-                )
+          CLASS_CONNECTION => {
+            let method = match method_id {
+              METHOD_START => {
+                Method::ConnStart(body.try_into()?)
+              }
+              METHOD_TUNE => {
+                Method::ConnTune(body.try_into()?)
               }
               _ => {
-                panic!("unsupporetd method id");
+                panic!("unsupporetd method id, {}", method_id);
               }
-            }
+            };
+
+            Frame::Method(MethodFrame { chan: channel, payload: method })
           }
           _ => {
-            panic!("unsupporetd class id");
+            panic!("unsupporetd class id, {}", class_id);
           }
         }
       },
@@ -130,11 +117,22 @@ impl AmqpStream {
         panic!("Unknown frame type")
       }
     };
+
+    Ok(frame)
   }
 
   fn read_cursor(&mut self, size: usize) -> response::Result<Cursor<Vec<u8>>> {
     let mut buff = vec![0_u8;size];
-    self.tcp_stream.read_exact(&mut buff)?;
+    info!("Starting read exact {}", size);
+    match self.tcp_stream.read_exact(&mut buff) {
+      Ok(_) => {},
+      Err(e) => {
+        println!("error ouccured {}", e.kind());
+        bail!(e.to_string());
+      }
+    };
+
+    info!("Finished read exact");
     Ok(Cursor::new(buff))
   }
 

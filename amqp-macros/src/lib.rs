@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::{quote};
-use syn::{Ident, Type, Attribute, punctuated::Punctuated, Token, Visibility, braced, parse_macro_input, parenthesized, Lit, parse};
+use syn::{Ident, Type, Attribute, punctuated::Punctuated, Token, Visibility, braced, parse_macro_input, Lit};
 use syn::parse::{Parse, ParseStream};
 
 mod macros;
@@ -42,8 +42,6 @@ impl Parse for MethodItem {
     let vis: Visibility = input.parse()?;
     let _: Token![struct] = input.parse()?;
     let ident: Ident = input.parse()?;
-
-    // let fields = vec![];
     let content;
     braced!(content in input);
     let fields: Punctuated<MethodItemField, Token![,]> = content.parse_terminated(MethodItemField::parse)?;
@@ -97,7 +95,6 @@ impl Parse for MethodItemMeta {
     let props = input.parse_terminated::<(String, i16), Token![,]>(
       |input| -> syn::Result<(String, i16)> {
         let prop_name = input.parse::<Ident>()?.to_string();
-        println!("Prop name {}" ,prop_name);
 
         if ![ "c_id", "m_id"].contains(&prop_name.as_str()) {
           return Err(input.error("Unknown prop name"));
@@ -124,8 +121,6 @@ impl Parse for MethodItemMeta {
 #[proc_macro_attribute]
 pub fn amqp_method(meta: TokenStream, input: TokenStream) -> TokenStream {
   let meta = parse_macro_input!(meta as MethodItemMeta);
-  println!("ClassId {}, MethodId {}", meta.0, meta.1);
-
   let method: MethodItem = parse_macro_input!(input as MethodItem);
   let struct_attrs: Vec<proc_macro2::TokenStream> = method.attrs.iter().map(|attr| {
     quote! {

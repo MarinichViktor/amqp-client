@@ -1,40 +1,25 @@
-use amqp;
+use std::collections::HashMap;
 use log::{info};
-use amqp::response;
-use amqp_macros::amqp_method;
-// fn main() -> response::Result<()> {
-//     env_logger::init();
-//
-//     let mut connection = Connection::new("localhost".to_string(), 5672, "user".to_string(), "password".to_string());
-//     info!("Connection connect ...");
-//     match connection.connect() {
-//         Err(e) => {
-//             for x in e.chain() {
-//                 info!("{}", x)
-//             }
-//         },
-//         _ => {}
-//     }
-//     info!("Connection connect finished");
-//     Ok(())
-// }
-
-#[amqp_method]
-struct AmqpMethod {
-    ver_maj: i32,
-    mechanism: String,
-}
-
+use amqp_client::connection::Connection;
+use amqp_client::response;
 
 fn main() -> response::Result<()> {
     env_logger::init();
+    // let test_map = HashMap::new();
+    // return Ok(());
 
-    info!("testing macro");
-    let method = AmqpMethod {
-        ver_maj: 12,
-        mechanism: "qweqwe".to_string()
-    };
-    method.greet();
-
+    let mut connection = Connection::new("localhost".to_string(), 5672, "user".to_string(), "password".to_string());
+    info!("Connection connect ...");
+    connection.connect()?;
+    // match connection.connect() {
+    //     Err(e) => {
+    //         for x in e.chain() {
+    //             info!("{}", x)
+    //         }
+    //     },
+    //     _ => {}
+    // }
+    info!("Connection connect finished");
     Ok(())
 }
+
