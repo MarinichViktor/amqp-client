@@ -1,5 +1,4 @@
 use amqp_macros::amqp_method;
-use amqp_protocol::response;
 
 #[amqp_method]
 struct AmqpMethod {
@@ -9,17 +8,6 @@ struct AmqpMethod {
     ver_min: u8
 }
 
-// impl TryInto<Vec<u8>> for AmqpMethod {
-//     type Error = ();
-//
-//     fn try_into(self) -> response::Result<Vec<u8>, Self::Error> {
-//         let data = vec![];
-//         // Encode::write_int(&data, self.ver_maj);
-//
-//         Ok(data)
-//     }
-// }
-
 fn main() {
 
     let d = AmqpMethod {
@@ -28,5 +16,4 @@ fn main() {
     };
     let v: Vec<u8> = d.try_into().unwrap();
     println!("data {:?}", v);
-    // method.greet();
 }

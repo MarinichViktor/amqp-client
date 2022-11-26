@@ -1,11 +1,26 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
-use quote::{quote, ToTokens};
+use quote::{quote};
 use syn::{Ident, Type,Attribute, punctuated::Punctuated, Token, Visibility, braced, parse_macro_input};
 use syn::parse::{Parse, ParseStream};
-use amqp_protocol::response;
 
 mod macros;
+
+static FIELD_ANNOTATION_WHITELIST: [&str; 13] = [
+  "byte",
+  "bool",
+  "short",
+  "ushort",
+  "int",
+  "uint",
+  "long",
+  "ulong",
+  "float",
+  "double",
+  "short_str",
+  "long_str",
+  "prop_table",
+];
 
 struct MethodItem {
   pub vis: Visibility,
@@ -73,7 +88,7 @@ impl Parse for MethodItemField {
 }
 
 #[proc_macro_attribute]
-pub fn amqp_method(meta: TokenStream, input: TokenStream) -> TokenStream {
+pub fn amqp_method(_meta: TokenStream, input: TokenStream) -> TokenStream {
   let method: MethodItem = parse_macro_input!(input as MethodItem);
   let struct_vis = &method.vis;
   let struct_name = &method.ident;
@@ -124,26 +139,44 @@ fn generate_into_byte_vec_trait_impl(method: &MethodItem) -> proc_macro2::TokenS
 fn generate_field_to_byte(field: &MethodItemField) -> syn::Result<proc_macro2::TokenStream> {
   match &field.amqp_ty {
     Some(amqp_ty) => {
-      return match amqp_ty.as_str() {
-        item @ "byte" => {
-          let field_ident = &field.ident;
-          let attr_ident = Ident::new(format!("write_{}", item).as_str(), Span::call_site());
+      let attr_ty_str = amqp_ty.as_str();
+      return if FIELD_ANNOTATION_WHITELIST.contains(&attr_ty_str) {
+        let field_ident = &field.ident;
+        let attr_ident = Ident::new(format!("write_{}", attr_ty_str).as_str(), Span::call_site());
 
-          Ok(quote! {
+        Ok(quote! {
             amqp_protocol::enc::Encode::#attr_ident(&mut data, self.#field_ident)?;
           })
-        },
-        _ => {
-          Err(syn::Error::new(
-            field.ident.span(),
-            format!(
-              "Unsupported field attribute type: attribute '{}', field '{}'",
-              amqp_ty.as_str(),
-              field.ident
-            ),
-          ))
-        }
+      } else {
+        Err(syn::Error::new(
+          field.ident.span(),
+          format!(
+            "Unsupported field attribute type: attribute '{}', field '{}'",
+            amqp_ty.as_str(),
+            field.ident
+          ),
+        ))
       }
+      // return match amqp_ty.as_str() {
+      //   item @ "byte" => {
+      //     let field_ident = &field.ident;
+      //     let attr_ident = Ident::new(format!("write_{}", item).as_str(), Span::call_site());
+      //
+      //     Ok(quote! {
+      //       amqp_protocol::enc::Encode::#attr_ident(&mut data, self.#field_ident)?;
+      //     })
+      //   },
+      //   _ => {
+      //     Err(syn::Error::new(
+      //       field.ident.span(),
+      //       format!(
+      //         "Unsupported field attribute type: attribute '{}', field '{}'",
+      //         amqp_ty.as_str(),
+      //         field.ident
+      //       ),
+      //     ))
+      //   }
+      // }
     }
     _ => {
       Err(syn::Error::new(
