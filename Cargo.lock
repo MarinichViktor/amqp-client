@@ -16,6 +16,7 @@ name = "amqp-client"
 version = "0.1.0"
 dependencies = [
  "amqp_macros",
+ "amqp_protocol",
  "anyhow",
  "byteorder",
  "env_logger",
