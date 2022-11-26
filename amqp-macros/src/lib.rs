@@ -23,6 +23,7 @@ static FIELD_ANNOTATION_WHITELIST: [&str; 13] = [
 ];
 
 struct MethodItem {
+  pub attrs: Vec<Attribute>,
   pub vis: Visibility,
   pub ident: Ident,
   pub fields: Vec<MethodItemField>
@@ -37,6 +38,7 @@ struct MethodItemField {
 
 impl Parse for MethodItem {
   fn parse(input: ParseStream) -> syn::Result<Self> {
+    let attrs: Vec<Attribute> = input.call(Attribute::parse_outer)?;
     let vis: Visibility = input.parse()?;
     let _: Token![struct] = input.parse()?;
     let ident: Ident = input.parse()?;
@@ -47,6 +49,7 @@ impl Parse for MethodItem {
     let fields: Punctuated<MethodItemField, Token![,]> = content.parse_terminated(MethodItemField::parse)?;
 
     Ok(MethodItem {
+      attrs,
       vis,
       ident,
       fields: fields.into_iter().collect(),
@@ -90,6 +93,11 @@ impl Parse for MethodItemField {
 #[proc_macro_attribute]
 pub fn amqp_method(_meta: TokenStream, input: TokenStream) -> TokenStream {
   let method: MethodItem = parse_macro_input!(input as MethodItem);
+  let struct_attrs: Vec<proc_macro2::TokenStream> = method.attrs.iter().map(|attr| {
+    quote! {
+      #attr
+    }
+  }).collect();
   let struct_vis = &method.vis;
   let struct_name = &method.ident;
   let fields_def = method.fields.iter().map(|f| {
@@ -106,6 +114,7 @@ pub fn amqp_method(_meta: TokenStream, input: TokenStream) -> TokenStream {
   let from_byte_trait_impl: proc_macro2::TokenStream = generate_from_byte_vec_trait_impl(&method);
 
   TokenStream::from(quote!(
+    #(#struct_attrs)*
     #struct_vis struct #struct_name {
       #(#fields_def),*
     }
