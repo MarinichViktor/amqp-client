@@ -39,6 +39,7 @@ impl Connection {
     amqp_stream.send_raw(&PROTOCOL_HEADER)?;
 
     let MethodFrame { chan: _, payload: method } = amqp_stream.next_method_frame()?;
+    // todo: write some helper for a such common case
     let start_method = match method {
       Method::ConnStart(start) => {
         start
@@ -48,6 +49,7 @@ impl Connection {
       }
     };
 
+    // todo: provide some meaningful values
     let mut client_properties = HashMap::new();
     client_properties.insert("product".to_string(), Property::LongStr("simpleapp123123asd ".to_string()));
     client_properties.insert("platform".to_string(), Property::LongStr("Erlang/OTP 24.3.4".to_string()));
