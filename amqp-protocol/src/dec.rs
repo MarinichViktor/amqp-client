@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{Cursor};
 use byteorder::{BigEndian, ReadBytesExt};
 use log::info;
-use crate::protocol::method::ServerProperty;
+use crate::types::Property;
 use crate::response;
 
 pub trait Decode {
@@ -18,10 +18,10 @@ pub trait Decode {
   fn read_double(&mut self) -> response::Result<f64>;
   fn read_short_str(&mut self) -> response::Result<String>;
   fn read_long_str(&mut self) -> response::Result<String>;
-  fn read_field_value_pair(&mut self) -> response::Result<(String, ServerProperty)>;
-  fn read_field_value(&mut self) -> response::Result<ServerProperty>;
-  fn read_field_value_type(&mut self, ch: char) -> response::Result<ServerProperty>;
-  fn read_prop_table(&mut self) -> response::Result<HashMap<String, ServerProperty>>;
+  fn read_field_value_pair(&mut self) -> response::Result<(String, Property)>;
+  fn read_field_value(&mut self) -> response::Result<Property>;
+  fn read_field_value_type(&mut self, ch: char) -> response::Result<Property>;
+  fn read_prop_table(&mut self) -> response::Result<HashMap<String, Property>>;
 }
 
 impl <T: std::io::Read + ?Sized> Decode for T {
@@ -78,32 +78,32 @@ impl <T: std::io::Read + ?Sized> Decode for T {
     Ok(String::from_utf8(buff)?)
   }
 
-  fn read_field_value_pair(&mut self) -> response::Result<(String, ServerProperty)> {
+  fn read_field_value_pair(&mut self) -> response::Result<(String, Property)> {
     let key = self.read_short_str()?;
     let value = self.read_field_value()?;
     Ok((key, value))
   }
 
-  fn read_field_value(&mut self) -> response::Result<ServerProperty> {
+  fn read_field_value(&mut self) -> response::Result<Property> {
     let value_type = self.read_byte()? as char;
     Ok(self.read_field_value_type(value_type)?)
   }
 
-  fn read_field_value_type(&mut self, ch: char) -> response::Result<ServerProperty> {
+  fn read_field_value_type(&mut self, ch: char) -> response::Result<Property> {
     let value = match ch {
-      't' => ServerProperty::Bool(self.read_bool()?),
-      'b' | 'B' => ServerProperty::Byte(self.read_byte()?),
-      'U' => ServerProperty::Short(self.read_short()?),
-      'u' => ServerProperty::UShort(self.read_ushort()?),
-      'I' => ServerProperty::Int(Decode::read_int(self)?),
-      'i' => ServerProperty::UInt(Decode::read_uint(self)?),
-      'L' => ServerProperty::Long(self.read_long()?),
-      'l' => ServerProperty::ULong(self.read_ulong()?),
-      'f' => ServerProperty::Float(self.read_float()?),
-      'd' => ServerProperty::Double(self.read_double()?),
-      's' => ServerProperty::ShortStr(self.read_short_str()?),
-      'S' => ServerProperty::LongStr(self.read_long_str()?),
-      'F' => ServerProperty::PropTable(self.read_prop_table()?),
+      't' => Property::Bool(self.read_bool()?),
+      'b' | 'B' => Property::Byte(self.read_byte()?),
+      'U' => Property::Short(self.read_short()?),
+      'u' => Property::UShort(self.read_ushort()?),
+      'I' => Property::Int(Decode::read_int(self)?),
+      'i' => Property::UInt(Decode::read_uint(self)?),
+      'L' => Property::Long(self.read_long()?),
+      'l' => Property::ULong(self.read_ulong()?),
+      'f' => Property::Float(self.read_float()?),
+      'd' => Property::Double(self.read_double()?),
+      's' => Property::ShortStr(self.read_short_str()?),
+      'S' => Property::LongStr(self.read_long_str()?),
+      'F' => Property::PropTable(self.read_prop_table()?),
       _ => {
         panic!("Unexpected values provided: {}", ch);
       }
@@ -112,7 +112,7 @@ impl <T: std::io::Read + ?Sized> Decode for T {
     Ok(value)
   }
 
-  fn read_prop_table(&mut self) -> response::Result<HashMap<String, ServerProperty>> {
+  fn read_prop_table(&mut self) -> response::Result<HashMap<String, Property>> {
     let mut table = HashMap::new();
     let table_size = Decode::read_uint(self)?;
     info!("Table size {}", table_size);

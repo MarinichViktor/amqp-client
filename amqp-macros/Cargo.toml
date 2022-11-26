@@ -11,3 +11,5 @@ proc-macro = true
 syn = { version="1.0.103", features=["full"] }
 quote = "1.0.21"
 proc-macro2 = "1.0.47"
+amqp_protocol = { path="../amqp-protocol" }
+anyhow = "1.0.66"

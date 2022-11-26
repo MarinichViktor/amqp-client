@@ -1,8 +1,7 @@
 use std::collections::HashMap;
-use std::io::{Cursor, Write};
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, WriteBytesExt};
 use log::info;
-use crate::protocol::method::ServerProperty;
+use crate::types::Property;
 use crate::response;
 
 pub trait Encode {
@@ -18,10 +17,10 @@ pub trait Encode {
   fn write_double(&mut self, val: f64) -> response::Result<()>;
   fn write_short_str(&mut self, val: String) -> response::Result<()>;
   fn write_long_str(&mut self, val: String) -> response::Result<()>;
-  fn write_field_value_pair(&mut self, val: (String, ServerProperty)) -> response::Result<()>;
-  fn write_field_value(&mut self, val: ServerProperty) -> response::Result<()>;
-  fn write_argument(&mut self,  val: ServerProperty) -> response::Result<()>;
-  fn write_prop_table(&mut self, val: HashMap<String, ServerProperty>) -> response::Result<()>;
+  fn write_field_value_pair(&mut self, val: (String, Property)) -> response::Result<()>;
+  fn write_field_value(&mut self, val: Property) -> response::Result<()>;
+  fn write_argument(&mut self, val: Property) -> response::Result<()>;
+  fn write_prop_table(&mut self, val: HashMap<String, Property>) -> response::Result<()>;
 }
 
 impl <T: std::io::Write + ?Sized> Encode for T {
@@ -91,63 +90,63 @@ impl <T: std::io::Write + ?Sized> Encode for T {
     Ok(())
   }
 
-  fn write_field_value_pair(&mut self, val: (String, ServerProperty)) -> response::Result<()> {
+  fn write_field_value_pair(&mut self, val: (String, Property)) -> response::Result<()> {
     self.write_short_str(val.0)?;
     self.write_field_value(val.1)?;
     Ok(())
   }
 
-  fn write_field_value(&mut self,  val: ServerProperty) -> response::Result<()> {
+  fn write_field_value(&mut self, val: Property) -> response::Result<()> {
     match val {
-      ServerProperty::Bool(v) => {
+      Property::Bool(v) => {
         self.write_byte('t' as u8)?;
         self.write_bool(v)?;
       },
-      ServerProperty::Byte(v) => {
+      Property::Byte(v) => {
         self.write_byte('b' as u8)?;
         self.write_byte(v)?;
       },
-      ServerProperty::Short(v) => {
+      Property::Short(v) => {
         self.write_byte('U' as u8)?;
         self.write_short(v)?;
       },
-      ServerProperty::UShort(v) => {
+      Property::UShort(v) => {
         self.write_byte('u' as u8)?;
         self.write_ushort(v)?;
       }
-      ServerProperty::Int(v) => {
+      Property::Int(v) => {
         self.write_byte('I' as u8)?;
         Encode::write_int(self, v)?;
       }
-      ServerProperty::UInt(v) => {
+      Property::UInt(v) => {
         self.write_byte('i' as u8)?;
         Encode::write_uint(self, v)?;
       }
-      ServerProperty::Long(v) => {
+      Property::Long(v) => {
         self.write_byte('L' as u8)?;
         self.write_long(v)?;
       }
-      ServerProperty::ULong(v) => {
+      Property::ULong(v) => {
         self.write_byte('l' as u8)?;
         self.write_ulong(v)?;
       }
-      ServerProperty::Float(v) => {
+      Property::Float(v) => {
         self.write_byte('f' as u8)?;
         self.write_float(v)?;
       }
-      ServerProperty::Double(v) => {
+      Property::Double(v) => {
         self.write_byte('d' as u8)?;
         self.write_double(v)?;
       }
-      ServerProperty::ShortStr(v) => {
+      Property::ShortStr(v) => {
         self.write_byte('s' as u8)?;
         self.write_short_str(v)?;
       }
-      ServerProperty::LongStr(v) => {
+      Property::LongStr(v) => {
         self.write_byte('S' as u8)?;
         self.write_long_str(v)?;
       }
-      ServerProperty::PropTable(v) => {
+      Property::PropTable(v) => {
         self.write_byte('F' as u8)?;
         self.write_prop_table(v)?;
       }
@@ -156,52 +155,52 @@ impl <T: std::io::Write + ?Sized> Encode for T {
     Ok(())
   }
 
-  fn write_argument(&mut self,  val: ServerProperty) -> response::Result<()> {
+  fn write_argument(&mut self, val: Property) -> response::Result<()> {
     match val {
-      ServerProperty::Bool(v) => {
+      Property::Bool(v) => {
         self.write_bool(v)?;
       },
-      ServerProperty::Byte(v) => {
+      Property::Byte(v) => {
         self.write_byte(v)?;
       },
-      ServerProperty::Short(v) => {
+      Property::Short(v) => {
         self.write_short(v)?;
       },
-      ServerProperty::UShort(v) => {
+      Property::UShort(v) => {
         self.write_ushort(v)?;
       }
-      ServerProperty::Int(v) => {
+      Property::Int(v) => {
         Encode::write_int(self, v)?;
       }
-      ServerProperty::UInt(v) => {
+      Property::UInt(v) => {
         Encode::write_uint(self, v)?;
       }
-      ServerProperty::Long(v) => {
+      Property::Long(v) => {
         self.write_long(v)?;
       }
-      ServerProperty::ULong(v) => {
+      Property::ULong(v) => {
         self.write_ulong(v)?;
       }
-      ServerProperty::Float(v) => {
+      Property::Float(v) => {
         self.write_float(v)?;
       }
-      ServerProperty::Double(v) => {
+      Property::Double(v) => {
         self.write_double(v)?;
       }
-      ServerProperty::ShortStr(v) => {
+      Property::ShortStr(v) => {
         self.write_short_str(v)?;
       }
-      ServerProperty::LongStr(v) => {
+      Property::LongStr(v) => {
         self.write_long_str(v)?;
       }
-      ServerProperty::PropTable(v) => {
+      Property::PropTable(v) => {
         self.write_prop_table(v)?;
       }
     }
 
     Ok(())
   }
-  fn write_prop_table(&mut self, val: HashMap<String, ServerProperty>) -> response::Result<()> {
+  fn write_prop_table(&mut self, val: HashMap<String, Property>) -> response::Result<()> {
     let mut buff = vec![];
 
     for pair in val {

@@ -1,16 +1,32 @@
-use amqp_client_macros::amqp_method;
+use amqp_macros::amqp_method;
+use amqp_protocol::response;
 
 #[amqp_method]
 struct AmqpMethod {
-    #[short]
-    ver_maj: i32,
-    mechanism: String,
+    #[byte]
+    ver_maj: u8,
+    #[byte]
+    ver_min: u8
 }
 
+// impl TryInto<Vec<u8>> for AmqpMethod {
+//     type Error = ();
+//
+//     fn try_into(self) -> response::Result<Vec<u8>, Self::Error> {
+//         let data = vec![];
+//         // Encode::write_int(&data, self.ver_maj);
+//
+//         Ok(data)
+//     }
+// }
+
 fn main() {
-    let method = AmqpMethod {
+
+    let d = AmqpMethod {
         ver_maj: 12,
-        mechanism: "qweqwe".to_string()
+        ver_min: 132
     };
-    method.greet();
+    let v: Vec<u8> = d.try_into().unwrap();
+    println!("data {:?}", v);
+    // method.greet();
 }
