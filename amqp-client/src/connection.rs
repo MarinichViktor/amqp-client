@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::bail;
 use log::info;
 use amqp_protocol::types::Property;
+use crate::channel::Channel;
 use crate::protocol::frame::{Method, MethodFrame};
 use crate::protocol::methods::connection::{Open, Start, StartOk, TuneOk};
 use crate::protocol::stream::ConnectionOpts;
@@ -91,7 +92,25 @@ impl Connection {
       ..Open::default()
     };
     writer.invoke(0, open_method)?;
+    let MethodFrame { payload: method, .. } = reader.next_method_frame()?;
+    let open_ok_method = match method {
+      Method::ConnOpenOk(open_ok) => {
+        open_ok
+      }
+      _ => {
+        bail!("Expected ConnOpenOk method");
+      }
+    };
+    info!("Received OpenOk method {:?}", open_ok_method);
+    // todo: implement
+    // self.start_listener()?;
 
     Ok(())
+  }
+
+  pub fn create_channel(&self) -> response::Result<Channel> {
+    let chan = Channel::new(self.amqp_stream.clone());
+    chan.open()?;
+    Ok(chan)
   }
 }

@@ -112,6 +112,9 @@ impl AmqpStreamReader {
               METHOD_TUNE => {
                 Method::ConnTune(body.try_into()?)
               }
+              METHOD_OPENOK => {
+                Method::ConnOpenOk(body.try_into()?)
+              }
               _ => {
                 panic!("unsupporetd method id, {}", method_id);
               }

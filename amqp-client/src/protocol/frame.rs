@@ -1,4 +1,5 @@
-use crate::protocol::methods::connection::{Start, Tune};
+use crate::protocol::methods::channel::{OpenOk as ChanOpenOk};
+use crate::protocol::methods::connection::{Start, Tune, OpenOk};
 
 // #[derive(Debug)]
 // pub struct AmqpFrame {
@@ -19,9 +20,12 @@ pub struct MethodFrame {
   pub payload: Method
 }
 
+// todo: refactor this mess
 #[derive(Debug)]
 pub enum Method {
   ConnStart(Start),
   ConnTune(Tune),
+  ConnOpenOk(OpenOk),
+  ChanOpenOk(ChanOpenOk),
   // ConnStartOk(StartOk),
 }

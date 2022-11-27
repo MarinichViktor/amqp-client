@@ -73,3 +73,10 @@ pub struct Open {
   pub reserved2: u8,
 }
 
+
+#[derive(Debug, Default)]
+#[amqp_method(c_id=10, m_id=41)]
+pub struct OpenOk {
+  #[short_str]
+  pub reserved1: String,
+}
