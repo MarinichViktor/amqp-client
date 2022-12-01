@@ -4,23 +4,38 @@ use std::sync::{Arc, Mutex};
 use anyhow::bail;
 use log::info;
 use amqp_protocol::types::Property;
-use crate::channel::Channel;
-use crate::protocol::frame::{Method, MethodFrame};
+use crate::amq_channel::AmqChannel;
+use crate::protocol::frame::{Frame, Method, MethodFrame};
 use crate::protocol::methods::connection::{Open, Start, StartOk, TuneOk};
 use crate::protocol::stream::ConnectionOpts;
 use super::protocol::stream::{AmqpStream};
 use crate::response;
 
 static PROTOCOL_HEADER: [u8;8] = [65,77,81,80,0,0,9,1];
+//
+// pub struct DefaultChan {
+// }
 
-pub struct DefaultChan {
+// todo: refactor this
+struct IdAllocator {
+  prev_id: Mutex<i16>
 }
 
-pub struct Connection {
-  amqp_stream: Arc<AmqpStream>
+impl IdAllocator {
+  pub fn allocate(&mut self) -> i16 {
+    let prev_id = self.prev_id.lock().unwrap();
+    *prev_id += 1;
+    *prev_id
+  }
 }
 
-impl Connection {
+pub struct AmqConnection {
+  amqp_stream: Arc<AmqpStream>,
+  channels: HashMap<i16,Arc<AmqChannel>>,
+  id_allocator: IdAllocator
+}
+
+impl AmqConnection {
   pub fn new(host: String, port: u16, login: String, password: String) -> Self {
     let stream = AmqpStream::new(
       //  todo: move connection opts on Connection level
@@ -32,8 +47,10 @@ impl Connection {
       }
     );
 
-    Connection {
-      amqp_stream: Arc::new(stream)
+    AmqConnection {
+      amqp_stream: Arc::new(stream),
+      channels: HashMap::new(),
+      id_allocator: IdAllocator { prev_id: Mutex::new(0) }
     }
   }
 
@@ -104,13 +121,32 @@ impl Connection {
     info!("Received OpenOk method {:?}", open_ok_method);
     // todo: implement
     // self.start_listener()?;
+    drop(reader);
+    drop(writer);
+
+    let reader = self.amqp_stream.reader.clone();
+    std::thread::spawn(move || {
+      let mut reader = reader.lock().unwrap();
+
+      while let Ok(frame) = reader.next_frame() {
+        match frame {
+          Frame::Method(frame) => {
+            self.channels[&frame.chan].handle_frame(frame);
+          }
+        }
+      }
+    });
 
     Ok(())
   }
 
-  pub fn create_channel(&self) -> response::Result<Channel> {
-    let chan = Channel::new(self.amqp_stream.clone());
+  pub fn create_channel(&mut self) -> response::Result<Arc<AmqChannel>> {
+    let id = self.id_allocator.allocate();
+    let chan = AmqChannel::new(id, self.amqp_stream.clone());
     chan.open()?;
+    let chan = Arc::new(chan);
+    self.channels.insert(chan.id, chan.clone());
+
     Ok(chan)
   }
 }

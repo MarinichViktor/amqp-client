@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::thread::{sleep, Thread};
 use std::time::Duration;
 use log::{info};
-use amqp_client::connection::Connection;
+use amqp_client::amq_connection::AmqConnection;
 use amqp_client::response;
 
 fn main() -> response::Result<()> {
@@ -10,7 +10,7 @@ fn main() -> response::Result<()> {
     // let test_map = HashMap::new();
     // return Ok(());
 
-    let mut connection = Connection::new("localhost".to_string(), 5672, "user".to_string(), "password".to_string());
+    let mut connection = AmqConnection::new("localhost".to_string(), 5672, "user".to_string(), "password".to_string());
     info!("Connection connect ...");
     connection.connect()?;
 

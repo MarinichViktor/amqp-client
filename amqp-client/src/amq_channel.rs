@@ -8,18 +8,18 @@ use crate::protocol::frame::{Method as FrameMethodPayload};
 use crate::protocol::frame::MethodFrame;
 
 // todo: to be used
-pub struct  Channel {
+pub struct AmqChannel {
   pub id: i16,
   amqp_stream: Arc<AmqpStream>,
   waiter_channel: (Sender<MethodFrame>, Receiver<MethodFrame>),
   active: bool,
 }
 
-impl Channel {
-  pub(crate) fn new(amqp_stream: Arc<AmqpStream>) -> Self {
+
+impl AmqChannel {
+  pub(crate) fn new(id: i16, amqp_stream: Arc<AmqpStream>) -> Self {
     Self {
-      // todo: id generator
-      id: 1,
+      id,
       amqp_stream,
       waiter_channel: channel(),
       active: true
@@ -27,7 +27,7 @@ impl Channel {
   }
 
   // todo: refactor result to avoid response prefix
-  pub fn handle_frame(method: FrameMethodPayload) -> response::Result<()> {
+  pub fn handle_frame(&self, method: FrameMethodPayload) -> response::Result<()> {
     match method {
       FrameMethodPayload::ChanOpenOk(payload) => {
         info!("Received open ok method {:?}", payload)

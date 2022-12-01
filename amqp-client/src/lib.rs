@@ -1,6 +1,6 @@
 extern crate core;
 
-pub mod connection;
+pub mod amq_connection;
 pub(crate) mod protocol;
-mod channel;
+mod amq_channel;
 pub use anyhow as response;

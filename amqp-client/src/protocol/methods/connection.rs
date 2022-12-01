@@ -1,5 +1,4 @@
 use amqp_macros::amqp_method;
-use crate::connection::DefaultChan;
 use crate::protocol::methods::PropTable;
 
 pub const CLASS_CONNECTION: i16 = 10;
