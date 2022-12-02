@@ -5,7 +5,7 @@ use anyhow::bail;
 use log::info;
 use amqp_protocol::types::Property;
 use crate::amq_channel::AmqChannel;
-use crate::protocol::frame::{Frame, Method, MethodFrame};
+use crate::protocol::frame::{AmqpFrameType, Frame, Method, MethodFrame};
 use crate::protocol::methods::connection::{Open, Start, StartOk, TuneOk};
 use crate::protocol::stream::ConnectionOpts;
 use super::protocol::stream::{AmqpStream};
@@ -23,7 +23,7 @@ struct IdAllocator {
 
 impl IdAllocator {
   pub fn allocate(&mut self) -> i16 {
-    let prev_id = self.prev_id.lock().unwrap();
+    let mut prev_id = self.prev_id.lock().unwrap();
     *prev_id += 1;
     *prev_id
   }
@@ -31,7 +31,7 @@ impl IdAllocator {
 
 pub struct AmqConnection {
   amqp_stream: Arc<AmqpStream>,
-  channels: HashMap<i16,Arc<AmqChannel>>,
+  channels: Arc<Mutex<HashMap<i16,Arc<AmqChannel>>>>,
   id_allocator: IdAllocator
 }
 
@@ -49,7 +49,7 @@ impl AmqConnection {
 
     AmqConnection {
       amqp_stream: Arc::new(stream),
-      channels: HashMap::new(),
+      channels: Arc::new(Mutex::new(HashMap::new())),
       id_allocator: IdAllocator { prev_id: Mutex::new(0) }
     }
   }
@@ -59,9 +59,9 @@ impl AmqConnection {
     let mut writer = self.amqp_stream.writer.lock().unwrap();
     writer.send_raw(&PROTOCOL_HEADER)?;
 
-    let MethodFrame { chan: _, payload: method } = reader.next_method_frame()?;
+    let frame = reader.next_method_frame()?;
     // todo: write some helper for a such common case
-    let start_method = match method {
+    let start_method = match frame.method_payload.unwrap() {
       Method::ConnStart(start) => {
         start
       }
@@ -86,8 +86,8 @@ impl AmqConnection {
     };
     writer.invoke(0, start_ok_method)?;
 
-    let MethodFrame { payload: method, .. } = reader.next_method_frame()?;
-    let tune_method = match method {
+    let frame = reader.next_method_frame()?;
+    let tune_method = match frame.method_payload.unwrap() {
       Method::ConnTune(tune) => {
         tune
       }
@@ -109,8 +109,8 @@ impl AmqConnection {
       ..Open::default()
     };
     writer.invoke(0, open_method)?;
-    let MethodFrame { payload: method, .. } = reader.next_method_frame()?;
-    let open_ok_method = match method {
+    let frame = reader.next_method_frame()?;
+    let open_ok_method = match frame.method_payload.unwrap() {
       Method::ConnOpenOk(open_ok) => {
         open_ok
       }
@@ -125,13 +125,17 @@ impl AmqConnection {
     drop(writer);
 
     let reader = self.amqp_stream.reader.clone();
+    let channels = self.channels.clone();
     std::thread::spawn(move || {
       let mut reader = reader.lock().unwrap();
 
       while let Ok(frame) = reader.next_frame() {
-        match frame {
-          Frame::Method(frame) => {
-            self.channels[&frame.chan].handle_frame(frame);
+        match frame.ty {
+          AmqpFrameType::Method => {
+            channels.lock().unwrap()[&frame.chan].handle_frame(frame);
+          },
+          _ => {
+            panic!("Unsupported frame type")
           }
         }
       }
@@ -145,7 +149,7 @@ impl AmqConnection {
     let chan = AmqChannel::new(id, self.amqp_stream.clone());
     chan.open()?;
     let chan = Arc::new(chan);
-    self.channels.insert(chan.id, chan.clone());
+    self.channels.lock().unwrap().insert(chan.id, chan.clone());
 
     Ok(chan)
   }

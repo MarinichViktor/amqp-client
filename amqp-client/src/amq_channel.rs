@@ -1,36 +1,40 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use crate::protocol::methods::{channel as protocol_channel};
 use crate::protocol::stream::AmqpStream;
 use crate::response;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use log::info;
-use crate::protocol::frame::{Method as FrameMethodPayload};
+use crate::protocol::frame::{AmqpFrame, Method as FrameMethodPayload};
 use crate::protocol::frame::MethodFrame;
 
 // todo: to be used
 pub struct AmqChannel {
   pub id: i16,
   amqp_stream: Arc<AmqpStream>,
-  waiter_channel: (Sender<MethodFrame>, Receiver<MethodFrame>),
+  waiter_channel: Mutex<Receiver<()>>,
+  waiter_sender: Mutex<Sender<()>>,
   active: bool,
 }
 
-
 impl AmqChannel {
   pub(crate) fn new(id: i16, amqp_stream: Arc<AmqpStream>) -> Self {
+    let (sender, receiver) = channel();
     Self {
       id,
       amqp_stream,
-      waiter_channel: channel(),
+      waiter_channel: Mutex::new(receiver),
+      waiter_sender: Mutex::new(sender),
       active: true
     }
   }
 
   // todo: refactor result to avoid response prefix
-  pub fn handle_frame(&self, method: FrameMethodPayload) -> response::Result<()> {
+  pub fn handle_frame(&self, frame: AmqpFrame) -> response::Result<()> {
+    let method = frame.method_payload.unwrap();
     match method {
       FrameMethodPayload::ChanOpenOk(payload) => {
-        info!("Received open ok method {:?}", payload)
+        info!("Received open ok method {:?}", payload);
+        self.waiter_sender.lock().unwrap().send(())?;
       },
       _ => {
         panic!("Received unknown method");
@@ -64,7 +68,7 @@ impl AmqChannel {
     Ok(())
   }
 
-  fn wait_for_response(&self) -> response::Result<MethodFrame> {
-    Ok(self.waiter_channel.1.recv()?)
+  fn wait_for_response(&self) -> response::Result<()> {
+    Ok(self.waiter_channel.lock().unwrap().recv()?)
   }
 }

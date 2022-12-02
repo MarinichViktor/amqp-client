@@ -6,7 +6,7 @@ use crate::response;
 use log::{info};
 use amqp_protocol::dec::Decode;
 use amqp_protocol::enc::Encode;
-use crate::protocol::frame::{Frame, Method, MethodFrame};
+use crate::protocol::frame::{AmqpFrame, AmqpFrameType, Frame, Method, MethodFrame};
 use crate::protocol::methods::connection::{CLASS_CONNECTION, METHOD_START, METHOD_STARTOK, METHOD_TUNE, METHOD_TUNEOK};
 // static PROTOCOL_HEADER: [u8;8] = [65,77,81,80,0,0,9,1];
 
@@ -65,26 +65,22 @@ impl AmqpStreamWriter {
 pub struct AmqpStreamReader(TcpStream);
 
 impl AmqpStreamReader {
-  pub fn next_method_frame(&mut self) -> response::Result<MethodFrame> {
-    let frame_descriptor = self.next_frame()?;
-    let frame;
+  pub fn next_method_frame(&mut self) -> response::Result<AmqpFrame> {
+    let mut frame_descriptor = self.next_frame()?;
 
     loop {
-      match frame_descriptor {
-        Frame::Method(body) => {
-          frame = body;
-          break;
+      match frame_descriptor.ty {
+        AmqpFrameType::Method  => {
+          return Ok(frame_descriptor);
         }
-        // _ => {
-        //   frame_descriptor = self.next_frame()?;
-        // }
+        _ => {
+          frame_descriptor = self.next_frame()?;
+        }
       }
     }
-
-    Ok(frame)
   }
 
-  pub fn next_frame(&mut self) -> response::Result<Frame> {
+  pub fn next_frame(&mut self) -> response::Result<AmqpFrame> {
     info!("Reading next frame");
     let mut frame_header = self.read_cursor(7)?;
     info!("Processing frame header");
@@ -120,7 +116,7 @@ impl AmqpStreamReader {
               }
             };
 
-            Frame::Method(MethodFrame { chan: channel, payload: method })
+            AmqpFrame::method(channel, method)
           }
           _ => {
             panic!("unsupporetd class id, {}", class_id);
