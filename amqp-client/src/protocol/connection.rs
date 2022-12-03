@@ -2,54 +2,48 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use log::info;
 use amqp_protocol::types::Property;
-use crate::amq_channel::AmqChannel;
+use crate::protocol::channel::AmqChannel;
 use crate::protocol::frame::{AmqFrame};
-use crate::protocol::methods::connection as conn_methods;
-use crate::protocol::stream::ConnectionOpts;
-use super::protocol::stream::{AmqpStream};
+use crate::protocol::stream::{AmqpStream};
 use crate::response;
+use crate::utils::IdAllocator;
 
-static PROTOCOL_HEADER: [u8;8] = [65,77,81,80,0,0,9,1];
-
-// todo: refactor this
-struct IdAllocator {
-  prev_id: Mutex<i16>
-}
-
-impl IdAllocator {
-  pub fn allocate(&mut self) -> i16 {
-    let mut prev_id = self.prev_id.lock().unwrap();
-    *prev_id += 1;
-    *prev_id
-  }
-}
+pub mod constants;
+pub mod methods;
 
 pub struct AmqConnection {
+  pub options: ConnectionOpts,
   amqp_stream: Arc<AmqpStream>,
   channels: Arc<Mutex<HashMap<i16,Arc<AmqChannel>>>>,
-  id_allocator: IdAllocator
+  id_allocator: IdAllocator,
+}
+
+#[derive(Clone)]
+pub struct ConnectionOpts {
+  pub host: String,
+  pub port: u16,
+  pub login: String,
+  pub password: String,
+  pub vhost: String,
 }
 
 impl AmqConnection {
-  pub fn new(host: String, port: u16, login: String, password: String) -> Self {
-    let stream = AmqpStream::new(
-      //  todo: move connection opts on Connection level
-      ConnectionOpts {
-        host,
-        port,
-        login,
-        password
-      }
-    );
+  pub fn new(host: String, port: u16, login: String, password: String, vhost: String) -> Self {
+    let connection_url = format!("{}:{}", host.clone(), port);
+    let options = ConnectionOpts { host, port, login, password, vhost };
 
     AmqConnection {
-      amqp_stream: Arc::new(stream),
+      amqp_stream: Arc::new(AmqpStream::new(connection_url)),
       channels: Arc::new(Mutex::new(HashMap::new())),
-      id_allocator: IdAllocator { prev_id: Mutex::new(0) }
+      id_allocator: IdAllocator::new(),
+      options
     }
   }
 
   pub fn connect(&mut self) -> response::Result<()> {
+    use crate::protocol::connection::constants::PROTOCOL_HEADER;
+    use crate::protocol::connection::methods as conn_methods;
+
     let mut reader = self.amqp_stream.reader.lock().unwrap();
     let mut writer = self.amqp_stream.writer.lock().unwrap();
     writer.send_raw(&PROTOCOL_HEADER)?;
@@ -69,7 +63,7 @@ impl AmqConnection {
     let start_ok_method = conn_methods::StartOk {
       properties: client_properties,
       mechanism: "PLAIN".to_string(),
-      response: "\x00user\x00password".to_string(),
+      response: format!("\x00{}\x00{}", self.options.login.as_str(), self.options.password),
       locale: "en_US".to_string()
     };
     writer.invoke(0, start_ok_method)?;
@@ -86,7 +80,7 @@ impl AmqConnection {
     writer.invoke(0, tune_ok_method)?;
 
     let open_method = conn_methods::Open {
-      vhost: "my_vhost".to_string(),
+      vhost: self.options.vhost.clone(),
       ..conn_methods::Open::default()
     };
     writer.invoke(0, open_method)?;

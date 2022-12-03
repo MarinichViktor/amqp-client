@@ -146,7 +146,7 @@ impl <T: std::io::Write + ?Sized> Encode for T {
         self.write_byte('S' as u8)?;
         self.write_long_str(v)?;
       }
-      Property::PropTable(v) => {
+      Property::Table(v) => {
         self.write_byte('F' as u8)?;
         self.write_prop_table(v)?;
       }
@@ -193,7 +193,7 @@ impl <T: std::io::Write + ?Sized> Encode for T {
       Property::LongStr(v) => {
         self.write_long_str(v)?;
       }
-      Property::PropTable(v) => {
+      Property::Table(v) => {
         self.write_prop_table(v)?;
       }
     }

@@ -16,7 +16,7 @@ pub enum Property {
   Double(f64),
   ShortStr(String),
   LongStr(String),
-  PropTable(Table)
+  Table(Table)
 }
 
 pub trait AmqMethod {

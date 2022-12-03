@@ -11,13 +11,11 @@ use crate::protocol::frame::{AmqFrame, AmqMethodFrame};
 pub struct AmqpStream {
   pub reader: Arc<Mutex<AmqpStreamReader>>,
   pub writer: Arc<Mutex<AmqpStreamWriter>>,
-  connection_opts: ConnectionOpts
 }
 
 impl AmqpStream {
-  pub fn new(connection_opts: ConnectionOpts) -> Self {
+  pub fn new(url: String) -> Self {
     // todo: clone or investigate
-    let url = format!("{}:{}", connection_opts.host, connection_opts.port);
     info!("Connecting to {}", url);
     let tcp_stream = TcpStream::connect(url).unwrap();
     let tcp_stream2 = tcp_stream.try_clone().unwrap();
@@ -25,16 +23,8 @@ impl AmqpStream {
     AmqpStream {
       reader: Arc::new(Mutex::new(AmqpStreamReader(tcp_stream))),
       writer: Arc::new(Mutex::new(AmqpStreamWriter(tcp_stream2))),
-      connection_opts
     }
   }
-}
-
-pub struct ConnectionOpts {
-  pub host: String,
-  pub port: u16,
-  pub login: String,
-  pub password: String
 }
 
 pub struct AmqpStreamWriter(TcpStream);

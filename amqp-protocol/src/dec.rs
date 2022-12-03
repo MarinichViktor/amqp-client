@@ -103,7 +103,7 @@ impl <T: std::io::Read + ?Sized> Decode for T {
       'd' => Property::Double(self.read_double()?),
       's' => Property::ShortStr(self.read_short_str()?),
       'S' => Property::LongStr(self.read_long_str()?),
-      'F' => Property::PropTable(self.read_prop_table()?),
+      'F' => Property::Table(self.read_prop_table()?),
       _ => {
         panic!("Unexpected values provided: {}", ch);
       }

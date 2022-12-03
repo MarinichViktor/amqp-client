@@ -1,11 +1,12 @@
 use std::sync::{Arc, Mutex};
-use crate::protocol::methods::{channel as protocol_channel};
 use crate::protocol::stream::AmqpStream;
 use crate::response;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use log::info;
 use crate::protocol::frame::{AmqMethodFrame};
-use crate::protocol::methods::connection::{StartOk};
+
+pub mod methods;
+pub mod constants;
 
 // todo: to be used
 pub struct AmqChannel {
@@ -42,9 +43,11 @@ impl AmqChannel {
   }
 
   fn handle_chan_frame(&self, frame: AmqMethodFrame) -> response::Result<()> {
+    use crate::protocol::channel::{methods::{OpenOk}, constants::{METHOD_OPEN_OK}};
+
     match frame.method_id {
-      11 => {
-        let payload: StartOk = frame.body.try_into()?;
+      METHOD_OPEN_OK => {
+        let payload: OpenOk = frame.body.try_into()?;
         info!("Received open ok method {:?}", payload);
         self.waiter_sender.lock().unwrap().send(())?;
       },
@@ -56,22 +59,26 @@ impl AmqChannel {
   }
 
   pub fn open(&self) -> response::Result<()> {
+    use crate::protocol::channel::methods::Open;
+
     info!("Invoking Open");
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
-    stream_writer.invoke(self.id, protocol_channel::Open::default())?;
+    stream_writer.invoke(self.id, Open::default())?;
     self.wait_for_response()?;
 
     Ok(())
   }
 
   pub fn flow(&mut self, active: bool) -> response::Result<()> {
+    use crate::protocol::channel::methods::Flow;
+
     info!("Invoking Flow");
     if self.active == active {
       return Ok(())
     }
 
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
-    stream_writer.invoke(self.id, protocol_channel::Flow {
+    stream_writer.invoke(self.id, Flow {
       active: active as u8
     })?;
     self.wait_for_response()?;
@@ -81,9 +88,11 @@ impl AmqChannel {
   }
 
   pub fn close(&self) -> response::Result<()> {
+    use crate::protocol::channel::methods::CloseOk;
+
     info!("Invoking close method");
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
-    stream_writer.invoke(self.id, protocol_channel::CloseOk::default())?;
+    stream_writer.invoke(self.id, CloseOk::default())?;
     self.wait_for_response()?;
 
     Ok(())

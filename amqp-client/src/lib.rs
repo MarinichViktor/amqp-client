@@ -1,6 +1,8 @@
 extern crate core;
 
-pub mod amq_connection;
-pub(crate) mod protocol;
-mod amq_channel;
+// todo: to be internal
+pub mod protocol;
+
 pub use anyhow as response;
+pub mod utils;
+pub mod connection;

@@ -1,3 +1,5 @@
 pub mod stream;
-pub mod methods;
 pub mod frame;
+pub mod connection;
+mod channel;
+pub use amqp_protocol::types::{AmqMethod, Table};
