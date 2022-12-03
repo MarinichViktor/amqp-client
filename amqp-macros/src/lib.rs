@@ -169,8 +169,8 @@ fn generate_into_byte_vec_trait_impl(method: &MethodItem) -> proc_macro2::TokenS
 
         fn try_into(self) -> amqp_protocol::response::Result<Vec<u8>, Self::Error> {
           let mut data = vec![];
-          amqp_protocol::enc::Encode::write_short(&mut data, self.class_id())?;
-          amqp_protocol::enc::Encode::write_short(&mut data, self.method_id())?;
+          amqp_protocol::enc::Encode::write_short(&mut data, #struct_ident::class_id())?;
+          amqp_protocol::enc::Encode::write_short(&mut data, #struct_ident::method_id())?;
 
           #( #fields_to_byte );*
 
@@ -302,11 +302,11 @@ fn generate_meta(method: &MethodItem, meta: &MethodItemMeta) -> proc_macro2::Tok
         }
       }
 
-      pub fn class_id(&self) -> i16 {
+      fn class_id() -> i16 {
         #class_id
       }
 
-      pub fn method_id(&self) -> i16 {
+      fn method_id() -> i16 {
         #method_id
       }
     }

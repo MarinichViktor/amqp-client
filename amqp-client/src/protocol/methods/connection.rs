@@ -1,16 +1,6 @@
 use amqp_macros::amqp_method;
 use crate::protocol::methods::PropTable;
 
-pub const CLASS_CONNECTION: i16 = 10;
-pub const METHOD_START: i16 = 10;
-pub const METHOD_STARTOK: i16 = 11;
-pub const METHOD_SECURE: i16 = 20;
-pub const METHOD_SECUREOK: i16 = 21;
-pub const METHOD_TUNE: i16 = 30;
-pub const METHOD_TUNEOK: i16 = 31;
-pub const METHOD_OPEN: i16 = 40;
-pub const METHOD_OPENOK: i16 = 41;
-
 #[derive(Debug)]
 #[amqp_method(c_id=10, m_id=10)]
 pub struct Start {
@@ -79,3 +69,4 @@ pub struct OpenOk {
   #[short_str]
   pub reserved1: String,
 }
+

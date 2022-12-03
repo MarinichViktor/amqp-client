@@ -1,48 +1,17 @@
-use crate::protocol::methods::channel::{OpenOk as ChanOpenOk};
-use crate::protocol::methods::connection::{Start, Tune, OpenOk};
-
 #[derive(Debug)]
-pub struct AmqpFrame {
-  pub ty: AmqpFrameType,
-  pub chan: i16,
-  pub method_payload: Option<Method>
-}
-
-
-#[derive(Debug)]
-pub enum AmqpFrameType {
-  Method,
+pub enum AmqFrame {
+  Method(AmqMethodFrame),
   Heartbeat
 }
 
-impl AmqpFrame {
-  pub fn method(chan: i16, payload: Method) -> Self {
-    Self {
-      ty: AmqpFrameType::Method,
-      chan,
-      method_payload: Some(payload)
-    }
-  }
-}
-
-#[deprecated]
 #[derive(Debug)]
-pub enum Frame {
-  Method(MethodFrame)
-}
-
-#[derive(Debug)]
-pub struct MethodFrame {
+pub struct AmqMethodFrame {
   pub chan: i16,
-  pub payload: Method
+  pub class_id: i16,
+  pub method_id: i16,
+  pub body: Vec<u8>
 }
 
-// todo: refactor this mess
-#[derive(Debug)]
-pub enum Method {
-  ConnStart(Start),
-  ConnTune(Tune),
-  ConnOpenOk(OpenOk),
-  ChanOpenOk(ChanOpenOk),
-  // ConnStartOk(StartOk),
-}
+
+
+

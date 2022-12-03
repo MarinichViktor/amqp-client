@@ -1,9 +1,5 @@
 use amqp_macros::amqp_method;
 
-pub const CLASS_CHANNEL: i16 = 20;
-pub const METHOD_OPEN: i16 = 10;
-pub const METHOD_OPEN_OK: i16 = 11;
-
 #[derive(Debug, Default)]
 #[amqp_method(c_id=20, m_id=10)]
 pub struct Open {

@@ -4,8 +4,8 @@ use crate::protocol::stream::AmqpStream;
 use crate::response;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use log::info;
-use crate::protocol::frame::{AmqpFrame, Method as FrameMethodPayload};
-use crate::protocol::frame::MethodFrame;
+use crate::protocol::frame::{AmqMethodFrame};
+use crate::protocol::methods::connection::{StartOk};
 
 // todo: to be used
 pub struct AmqChannel {
@@ -29,10 +29,22 @@ impl AmqChannel {
   }
 
   // todo: refactor result to avoid response prefix
-  pub fn handle_frame(&self, frame: AmqpFrame) -> response::Result<()> {
-    let method = frame.method_payload.unwrap();
-    match method {
-      FrameMethodPayload::ChanOpenOk(payload) => {
+  pub fn handle_frame(&self, frame: AmqMethodFrame) -> response::Result<()> {
+    match frame.class_id {
+      20 => {
+        self.handle_chan_frame(frame)?;
+      }
+      _ => {
+        panic!("Received unknown method");
+      }
+    }
+    Ok(())
+  }
+
+  fn handle_chan_frame(&self, frame: AmqMethodFrame) -> response::Result<()> {
+    match frame.method_id {
+      11 => {
+        let payload: StartOk = frame.body.try_into()?;
         info!("Received open ok method {:?}", payload);
         self.waiter_sender.lock().unwrap().send(())?;
       },

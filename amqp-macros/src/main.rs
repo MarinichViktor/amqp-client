@@ -1,5 +1,5 @@
 use amqp_macros::amqp_method;
-
+use amqp_protocol::types::AmqMethod;
 #[derive(Debug)]
 #[amqp_method(c_id=23, m_id=14)]
 struct AmqpMethod {

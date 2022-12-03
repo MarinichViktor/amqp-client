@@ -18,3 +18,8 @@ pub enum Property {
   LongStr(String),
   PropTable(Table)
 }
+
+pub trait AmqMethod {
+  fn class_id(&self) -> i16;
+  fn method_id(&self) -> i16;
+}

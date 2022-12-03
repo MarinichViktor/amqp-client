@@ -1,20 +1,15 @@
 use std::collections::HashMap;
-use std::fs::read;
 use std::sync::{Arc, Mutex};
-use anyhow::bail;
 use log::info;
 use amqp_protocol::types::Property;
 use crate::amq_channel::AmqChannel;
-use crate::protocol::frame::{AmqpFrameType, Frame, Method, MethodFrame};
-use crate::protocol::methods::connection::{Open, Start, StartOk, TuneOk};
+use crate::protocol::frame::{AmqFrame};
+use crate::protocol::methods::connection as conn_methods;
 use crate::protocol::stream::ConnectionOpts;
 use super::protocol::stream::{AmqpStream};
 use crate::response;
 
 static PROTOCOL_HEADER: [u8;8] = [65,77,81,80,0,0,9,1];
-//
-// pub struct DefaultChan {
-// }
 
 // todo: refactor this
 struct IdAllocator {
@@ -61,14 +56,7 @@ impl AmqConnection {
 
     let frame = reader.next_method_frame()?;
     // todo: write some helper for a such common case
-    let start_method = match frame.method_payload.unwrap() {
-      Method::ConnStart(start) => {
-        start
-      }
-      _ => {
-        bail!("Expected ConnStart method");
-      }
-    };
+    let start_method: conn_methods::Start = frame.body.try_into()?;
 
     // todo: provide some meaningful values
     let mut client_properties = HashMap::new();
@@ -78,7 +66,7 @@ impl AmqConnection {
     client_properties.insert("information".to_string(), Property::LongStr("Licensed under the MPL 2.0".to_string()));
 
     // todo: use values from conn options
-    let start_ok_method = StartOk {
+    let start_ok_method = conn_methods::StartOk {
       properties: client_properties,
       mechanism: "PLAIN".to_string(),
       response: "\x00user\x00password".to_string(),
@@ -87,37 +75,24 @@ impl AmqConnection {
     writer.invoke(0, start_ok_method)?;
 
     let frame = reader.next_method_frame()?;
-    let tune_method = match frame.method_payload.unwrap() {
-      Method::ConnTune(tune) => {
-        tune
-      }
-      _ => {
-        bail!("Expected ConnTune method");
-      }
-    };
+    let tune_method: conn_methods::Tune = frame.body.try_into()?;
 
     // todo: use values from conn options
-    let tune_ok_method = TuneOk {
+    let tune_ok_method = conn_methods::TuneOk {
       chan_max: tune_method.chan_max,
       frame_max: tune_method.frame_max,
       heartbeat: tune_method.heartbeat
     };
     writer.invoke(0, tune_ok_method)?;
 
-    let open_method = Open {
+    let open_method = conn_methods::Open {
       vhost: "my_vhost".to_string(),
-      ..Open::default()
+      ..conn_methods::Open::default()
     };
     writer.invoke(0, open_method)?;
     let frame = reader.next_method_frame()?;
-    let open_ok_method = match frame.method_payload.unwrap() {
-      Method::ConnOpenOk(open_ok) => {
-        open_ok
-      }
-      _ => {
-        bail!("Expected ConnOpenOk method");
-      }
-    };
+    let open_ok_method: conn_methods::OpenOk = frame.body.try_into()?;
+
     info!("Received OpenOk method {:?}", open_ok_method);
     // todo: implement
     // self.start_listener()?;
@@ -146,10 +121,10 @@ impl AmqConnection {
       let mut reader = reader.lock().unwrap();
 
       while let Ok(frame) = reader.next_frame() {
-        match frame.ty {
-          AmqpFrameType::Method => {
-            println!("Received method frame {:?} {:?}", frame.ty, frame.chan);
-            channels.lock().unwrap()[&frame.chan].handle_frame(frame);
+        match frame {
+          AmqFrame::Method(method_frame) => {
+            println!("Received method frame {:?} {:?}", method_frame.class_id, method_frame.method_id);
+            channels.lock().unwrap()[&method_frame.chan].handle_frame(method_frame).unwrap();
           },
           _ => {
             panic!("Unsupported frame type")

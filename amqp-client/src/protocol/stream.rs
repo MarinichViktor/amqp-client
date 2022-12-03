@@ -6,8 +6,7 @@ use crate::response;
 use log::{info};
 use amqp_protocol::dec::Decode;
 use amqp_protocol::enc::Encode;
-use crate::protocol::frame::{AmqpFrame, AmqpFrameType, Method};
-use crate::protocol::methods::{connection as conn_methods, channel as chan_methods};
+use crate::protocol::frame::{AmqFrame, AmqMethodFrame};
 
 pub struct AmqpStream {
   pub reader: Arc<Mutex<AmqpStreamReader>>,
@@ -64,27 +63,27 @@ impl AmqpStreamWriter {
 pub struct AmqpStreamReader(TcpStream);
 
 impl AmqpStreamReader {
-  pub fn next_method_frame(&mut self) -> response::Result<AmqpFrame> {
-    let mut frame_descriptor = self.next_frame()?;
+  pub fn next_method_frame(&mut self) -> response::Result<AmqMethodFrame> {
+    let mut frame = self.next_frame()?;
 
     loop {
-      match frame_descriptor.ty {
-        AmqpFrameType::Method  => {
-          return Ok(frame_descriptor);
+      match frame {
+        AmqFrame::Method(method)  => {
+          return Ok(method);
         }
         _ => {
-          frame_descriptor = self.next_frame()?;
+          frame = self.next_frame()?;
         }
       }
     }
   }
 
-  pub fn next_frame(&mut self) -> response::Result<AmqpFrame> {
+  pub fn next_frame(&mut self) -> response::Result<AmqFrame> {
     info!("Reading next frame");
     let mut frame_header = self.read_cursor(7)?;
     info!("Processing frame header");
     let frame_type = frame_header.read_byte()?;
-    let channel = frame_header.read_short()?;
+    let chan = frame_header.read_short()?;
     let size = Decode::read_int(&mut frame_header)?;
     info!("Next frame size {}", size);
     let body = self.read(size as usize)?;
@@ -97,40 +96,7 @@ impl AmqpStreamReader {
         let mut meta = Cursor::new(body[..4].to_vec());
         let class_id = meta.read_short()?;
         let method_id = meta.read_short()?;
-
-        match class_id {
-          conn_methods::CLASS_CONNECTION => {
-            let method = match method_id {
-              conn_methods::METHOD_START => {
-                Method::ConnStart(body.try_into()?)
-              }
-              conn_methods::METHOD_TUNE => {
-                Method::ConnTune(body.try_into()?)
-              }
-              conn_methods::METHOD_OPENOK => {
-                Method::ConnOpenOk(body.try_into()?)
-              }
-              _ => {
-                panic!("unsupporetd method id, class_id: {}, method_id: {}", class_id, method_id);
-              }
-            };
-            AmqpFrame::method(channel, method)
-          },
-          chan_methods::CLASS_CHANNEL => {
-            let method = match method_id {
-              chan_methods::METHOD_OPEN_OK => {
-                Method::ChanOpenOk(body.try_into()?)
-              }
-              _ => {
-                panic!("unsupported method id, {}", method_id);
-              }
-            };
-            AmqpFrame::method(channel, method)
-          }
-          _ => {
-            panic!("unsupported class id, class_id: {}, method_id: {}", class_id, method_id);
-          }
-        }
+        AmqFrame::Method(AmqMethodFrame { chan, class_id, method_id, body })
       },
       // todo: fix this
       _ => {
