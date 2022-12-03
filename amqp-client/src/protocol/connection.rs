@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use log::info;
 use amqp_protocol::types::Property;
 use crate::protocol::channel::AmqChannel;
+use crate::protocol::connection::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
 use crate::protocol::frame::{AmqFrame};
 use crate::protocol::stream::{AmqpStream};
 use crate::response;
@@ -46,25 +47,23 @@ impl AmqConnection {
 
     let mut reader = self.amqp_stream.reader.lock().unwrap();
     let mut writer = self.amqp_stream.writer.lock().unwrap();
+
     writer.send_raw(&PROTOCOL_HEADER)?;
 
     let frame = reader.next_method_frame()?;
-    // todo: write some helper for a such common case
-    let start_method: conn_methods::Start = frame.body.try_into()?;
+    let _start_method: conn_methods::Start = frame.body.try_into()?;
 
-    // todo: provide some meaningful values
-    let mut client_properties = HashMap::new();
-    client_properties.insert("product".to_string(), Property::LongStr("simpleapp123123asd ".to_string()));
-    client_properties.insert("platform".to_string(), Property::LongStr("Erlang/OTP 24.3.4".to_string()));
-    client_properties.insert("copyright".to_string(), Property::LongStr("param-pam-pamqweqwe".to_string()));
-    client_properties.insert("information".to_string(), Property::LongStr("Licensed under the MPL 2.0".to_string()));
-
-    // todo: use values from conn options
+    let client_properties = HashMap::from([
+      ("product".to_string(), Property::LongStr(PRODUCT.to_string())),
+      ("platform".to_string(), Property::LongStr(PLATFORM.to_string())),
+      ("copyright".to_string(), Property::LongStr(COPYRIGHT.to_string())),
+      ("information".to_string(), Property::LongStr(INFORMATION.to_string()))
+    ]);
     let start_ok_method = conn_methods::StartOk {
       properties: client_properties,
-      mechanism: "PLAIN".to_string(),
+      mechanism: DEFAULT_AUTH_MECHANISM.to_string(),
       response: format!("\x00{}\x00{}", self.options.login.as_str(), self.options.password),
-      locale: "en_US".to_string()
+      locale: DEFAULT_LOCALE.to_string()
     };
     writer.invoke(0, start_ok_method)?;
 
@@ -88,8 +87,7 @@ impl AmqConnection {
     let open_ok_method: conn_methods::OpenOk = frame.body.try_into()?;
 
     info!("Received OpenOk method {:?}", open_ok_method);
-    // todo: implement
-    // self.start_listener()?;
+
     drop(reader);
     drop(writer);
 
