@@ -15,7 +15,9 @@ fn main() -> response::Result<()> {
     connection.connect()?;
 
     let chan = connection.create_channel()?;
-    sleep(Duration::from_secs(2));
+    chan.close()?;
+    sleep(Duration::from_secs(5));
+
     // match connection.connect() {
     //     Err(e) => {
     //         for x in e.chain() {
@@ -24,7 +26,9 @@ fn main() -> response::Result<()> {
     //     },
     //     _ => {}
     // }
+
     info!("Connection connect finished");
+
     Ok(())
 }
 

@@ -68,6 +68,16 @@ impl AmqChannel {
     Ok(())
   }
 
+  pub fn close(&self) -> response::Result<()> {
+    info!("Invoking close method");
+    let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
+    stream_writer.invoke(self.id, protocol_channel::CloseOk::default())?;
+    self.wait_for_response()?;
+
+    Ok(())
+  }
+
+
   fn wait_for_response(&self) -> response::Result<()> {
     Ok(self.waiter_channel.lock().unwrap().recv()?)
   }

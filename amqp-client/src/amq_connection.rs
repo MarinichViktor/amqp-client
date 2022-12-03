@@ -124,14 +124,31 @@ impl AmqConnection {
     drop(reader);
     drop(writer);
 
+    self.start_listener();
+    Ok(())
+  }
+
+  pub fn create_channel(&mut self) -> response::Result<Arc<AmqChannel>> {
+    let id = self.id_allocator.allocate();
+    let chan = AmqChannel::new(id, self.amqp_stream.clone());
+    let chan = Arc::new(chan);
+    self.channels.lock().unwrap().insert(chan.id, chan.clone());
+    chan.open()?;
+
+    Ok(chan)
+  }
+
+  pub fn start_listener(&self) {
     let reader = self.amqp_stream.reader.clone();
     let channels = self.channels.clone();
+
     std::thread::spawn(move || {
       let mut reader = reader.lock().unwrap();
 
       while let Ok(frame) = reader.next_frame() {
         match frame.ty {
           AmqpFrameType::Method => {
+            println!("Received method frame {:?} {:?}", frame.ty, frame.chan);
             channels.lock().unwrap()[&frame.chan].handle_frame(frame);
           },
           _ => {
@@ -140,17 +157,5 @@ impl AmqConnection {
         }
       }
     });
-
-    Ok(())
-  }
-
-  pub fn create_channel(&mut self) -> response::Result<Arc<AmqChannel>> {
-    let id = self.id_allocator.allocate();
-    let chan = AmqChannel::new(id, self.amqp_stream.clone());
-    chan.open()?;
-    let chan = Arc::new(chan);
-    self.channels.lock().unwrap().insert(chan.id, chan.clone());
-
-    Ok(chan)
   }
 }

@@ -1,5 +1,9 @@
 use amqp_macros::amqp_method;
 
+pub const CLASS_CHANNEL: i16 = 20;
+pub const METHOD_OPEN: i16 = 10;
+pub const METHOD_OPEN_OK: i16 = 11;
+
 #[derive(Debug, Default)]
 #[amqp_method(c_id=20, m_id=10)]
 pub struct Open {
@@ -29,7 +33,7 @@ pub struct FlowOk {
 }
 
 #[derive(Debug)]
-#[amqp_method(c_id=20, m_id=30)]
+#[amqp_method(c_id=20, m_id=40)]
 pub struct Close {
   #[short]
   pub reply_code: i16,
@@ -39,4 +43,9 @@ pub struct Close {
   pub class_id: i16,
   #[short]
   pub method_id: i16,
+}
+
+#[derive(Debug, Default)]
+#[amqp_method(c_id=20, m_id=41)]
+pub struct CloseOk {
 }
