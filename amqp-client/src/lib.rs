@@ -1,8 +1,7 @@
-extern crate core;
-
-// todo: to be internal
-pub mod protocol;
-
-pub use anyhow as response;
-pub mod utils;
-pub mod connection;
+// extern crate core;
+pub(crate) mod protocol;
+pub(crate) mod utils;
+pub(crate) mod connection;
+pub(crate) mod channel;
+pub use crate::{connection::Connection, channel::Channel};
+pub use amqp_protocol::response::{Result,Error,bail};

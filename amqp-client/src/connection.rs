@@ -1,5 +1,6 @@
-use std::net::ToSocketAddrs;
+use crate::channel::Channel;
 use crate::protocol::connection::AmqConnection;
+use crate::{Result};
 
 pub struct Connection {
   raw: AmqConnection
@@ -17,11 +18,14 @@ impl Connection {
       ),
     }
   }
-}
 
-pub struct ConnectionOpts {
-  pub host: String,
-  pub port: u16,
-  pub login: String,
-  pub password: String
+  pub fn open(&mut self) -> Result<()> {
+    self.raw.connect()?;
+    Ok(())
+  }
+
+  pub fn create_channel(&mut self) -> Result<Channel> {
+    let raw_channel = self.raw.create_channel()?;
+    Ok(Channel::new(raw_channel))
+  }
 }

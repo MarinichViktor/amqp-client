@@ -2,7 +2,7 @@ use std::net::TcpStream;
 use std::io::{Cursor, Read, Write};
 use std::sync::{Arc, Mutex};
 use anyhow::bail;
-use crate::response;
+use crate::{Result,Error};
 use log::{info};
 use amqp_protocol::dec::Decode;
 use amqp_protocol::enc::Encode;
@@ -30,7 +30,7 @@ impl AmqpStream {
 pub struct AmqpStreamWriter(TcpStream);
 
 impl AmqpStreamWriter {
-  pub fn invoke<T: TryInto<Vec<u8>, Error=response::Error>>(&mut self, chan: i16, args: T) -> response::Result<()> {
+  pub fn invoke<T: TryInto<Vec<u8>, Error=Error>>(&mut self, chan: i16, args: T) -> Result<()> {
     let mut frame_buff = vec![];
     frame_buff.write_byte(1)?;
     frame_buff.write_short(chan)?;
@@ -44,7 +44,7 @@ impl AmqpStreamWriter {
     Ok(())
   }
 
-  pub fn send_raw(&mut self, buff: &[u8]) -> response::Result<()> {
+  pub fn send_raw(&mut self, buff: &[u8]) -> Result<()> {
     self.0.write_all(buff)?;
     Ok(())
   }
@@ -53,7 +53,7 @@ impl AmqpStreamWriter {
 pub struct AmqpStreamReader(TcpStream);
 
 impl AmqpStreamReader {
-  pub fn next_method_frame(&mut self) -> response::Result<AmqMethodFrame> {
+  pub fn next_method_frame(&mut self) -> Result<AmqMethodFrame> {
     let mut frame = self.next_frame()?;
 
     loop {
@@ -68,7 +68,7 @@ impl AmqpStreamReader {
     }
   }
 
-  pub fn next_frame(&mut self) -> response::Result<AmqFrame> {
+  pub fn next_frame(&mut self) -> Result<AmqFrame> {
     info!("Reading next frame");
     let mut frame_header = self.read_cursor(7)?;
     info!("Processing frame header");
@@ -97,7 +97,7 @@ impl AmqpStreamReader {
     Ok(frame)
   }
 
-  fn read_cursor(&mut self, size: usize) -> response::Result<Cursor<Vec<u8>>> {
+  fn read_cursor(&mut self, size: usize) -> Result<Cursor<Vec<u8>>> {
     let mut buff = vec![0_u8;size];
     info!("Starting read exact {}", size);
     match self.0.read_exact(&mut buff) {
@@ -112,7 +112,7 @@ impl AmqpStreamReader {
     Ok(Cursor::new(buff))
   }
 
-  fn read(&mut self, size: usize) -> response::Result<Vec<u8>> {
+  fn read(&mut self, size: usize) -> Result<Vec<u8>> {
     let mut buff = vec![0_u8;size];
     self.0.read_exact(&mut buff)?;
     Ok(buff)

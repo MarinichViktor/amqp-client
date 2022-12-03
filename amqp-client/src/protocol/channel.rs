@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 use crate::protocol::stream::AmqpStream;
-use crate::response;
+use crate::{Result};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use log::info;
 use crate::protocol::frame::{AmqMethodFrame};
@@ -30,7 +30,7 @@ impl AmqChannel {
   }
 
   // todo: refactor result to avoid response prefix
-  pub fn handle_frame(&self, frame: AmqMethodFrame) -> response::Result<()> {
+  pub fn handle_frame(&self, frame: AmqMethodFrame) -> Result<()> {
     match frame.class_id {
       20 => {
         self.handle_chan_frame(frame)?;
@@ -42,7 +42,7 @@ impl AmqChannel {
     Ok(())
   }
 
-  fn handle_chan_frame(&self, frame: AmqMethodFrame) -> response::Result<()> {
+  fn handle_chan_frame(&self, frame: AmqMethodFrame) -> Result<()> {
     use crate::protocol::channel::{methods::{OpenOk}, constants::{METHOD_OPEN_OK}};
 
     match frame.method_id {
@@ -58,7 +58,7 @@ impl AmqChannel {
     Ok(())
   }
 
-  pub fn open(&self) -> response::Result<()> {
+  pub fn open(&self) -> Result<()> {
     use crate::protocol::channel::methods::Open;
 
     info!("Invoking Open");
@@ -69,7 +69,7 @@ impl AmqChannel {
     Ok(())
   }
 
-  pub fn flow(&mut self, active: bool) -> response::Result<()> {
+  pub fn flow(&mut self, active: bool) -> Result<()> {
     use crate::protocol::channel::methods::Flow;
 
     info!("Invoking Flow");
@@ -87,7 +87,7 @@ impl AmqChannel {
     Ok(())
   }
 
-  pub fn close(&self) -> response::Result<()> {
+  pub fn close(&self) -> Result<()> {
     use crate::protocol::channel::methods::CloseOk;
 
     info!("Invoking close method");
@@ -99,7 +99,7 @@ impl AmqChannel {
   }
 
 
-  fn wait_for_response(&self) -> response::Result<()> {
+  fn wait_for_response(&self) -> Result<()> {
     Ok(self.waiter_channel.lock().unwrap().recv()?)
   }
 }

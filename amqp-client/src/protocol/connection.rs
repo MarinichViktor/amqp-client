@@ -6,7 +6,7 @@ use crate::protocol::channel::AmqChannel;
 use crate::protocol::connection::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
 use crate::protocol::frame::{AmqFrame};
 use crate::protocol::stream::{AmqpStream};
-use crate::response;
+use crate::{Result};
 use crate::utils::IdAllocator;
 
 pub mod constants;
@@ -41,7 +41,7 @@ impl AmqConnection {
     }
   }
 
-  pub fn connect(&mut self) -> response::Result<()> {
+  pub fn connect(&mut self) -> Result<()> {
     use crate::protocol::connection::constants::PROTOCOL_HEADER;
     use crate::protocol::connection::methods as conn_methods;
 
@@ -95,7 +95,7 @@ impl AmqConnection {
     Ok(())
   }
 
-  pub fn create_channel(&mut self) -> response::Result<Arc<AmqChannel>> {
+  pub fn create_channel(&mut self) -> Result<Arc<AmqChannel>> {
     let id = self.id_allocator.allocate();
     let chan = AmqChannel::new(id, self.amqp_stream.clone());
     let chan = Arc::new(chan);
