@@ -98,7 +98,6 @@ impl AmqChannel {
     Ok(())
   }
 
-
   fn wait_for_response(&self) -> Result<()> {
     Ok(self.waiter_channel.lock().unwrap().recv()?)
   }

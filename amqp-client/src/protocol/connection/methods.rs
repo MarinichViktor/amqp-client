@@ -69,4 +69,3 @@ pub struct OpenOk {
   #[short_str]
   pub reserved1: String,
 }
-

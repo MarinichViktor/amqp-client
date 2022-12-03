@@ -11,7 +11,3 @@ pub struct AmqMethodFrame {
   pub method_id: i16,
   pub body: Vec<u8>
 }
-
-
-
-

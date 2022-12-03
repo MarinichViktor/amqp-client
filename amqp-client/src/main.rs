@@ -21,4 +21,3 @@ fn main() {
 
   sleep(Duration::from_secs(5));
 }
-
