@@ -8,8 +8,8 @@ Main goals:
 - dive into the amqp protocol specification
 
 To be done:
-- [ ] Connection
-- [ ] Channel
+- [x] Connection
+- [x] Channel
 - [ ] Exchange
 - [ ] Queue
 - [ ] Basic

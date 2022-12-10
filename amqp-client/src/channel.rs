@@ -20,4 +20,7 @@ impl Channel {
   pub fn close(&self) -> Result<()> {
     self.raw.close()
   }
+
+  pub fn declare_exchange(&self) -> Result<String> {
+  }
 }
