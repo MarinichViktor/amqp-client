@@ -1,8 +1,11 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use crate::protocol::stream::AmqpStream;
 use crate::{Result};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use log::info;
+use amqp_protocol::types::Table;
+use crate::protocol::exchange::{ExchangeDeclareOpts, ExchangeDeclareOptsBuilder, ExchangeType};
 use crate::protocol::frame::{AmqMethodFrame};
 
 pub mod methods;
@@ -94,6 +97,46 @@ impl AmqChannel {
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
     stream_writer.invoke(self.id, CloseOk::default())?;
     self.wait_for_response()?;
+
+    Ok(())
+  }
+
+  pub fn declare_with_builder<F>(&self, configure: F) -> Result<()>
+    where F: FnOnce(&mut ExchangeDeclareOptsBuilder) -> ()
+  {
+    let mut builder = ExchangeDeclareOptsBuilder::new();
+    configure(&mut builder);
+    self.declare_exchange(builder.build())
+  }
+
+  pub fn declare_exchange(
+    &self,
+    opts: ExchangeDeclareOpts,
+    // name: String,
+    // ty: ExchangeType,
+    // passive: bool,
+    // durable: bool,
+    // auto_delete: bool,
+    // internal: bool,
+    // no_wait: bool,
+    // props: Table
+  ) -> Result<()> {
+    use crate::protocol::exchange::methods::Declare;
+
+    info!("Invoking Declare");
+    let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
+    stream_writer.invoke(self.id, Declare::new_with_config(
+      opts.name,
+      opts.ty,
+      opts.passive,
+      opts.durable,
+      opts.auto_delete,
+      opts.internal,
+      opts.no_wait,
+      opts.props
+    ))?;
+    self.wait_for_response()?;
+    info!("Received Declare Response");
 
     Ok(())
   }

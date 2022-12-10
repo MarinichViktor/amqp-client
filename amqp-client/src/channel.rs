@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use crate::protocol::channel::AmqChannel;
+use crate::protocol::exchange::{ExchangeDeclareOptsBuilder, ExchangeType};
 use crate::Result;
 
 pub struct Channel {
@@ -21,6 +22,11 @@ impl Channel {
     self.raw.close()
   }
 
-  pub fn declare_exchange(&self) -> Result<String> {
+  pub fn declare_exchange<F>(&self, configure: F) -> Result<String>
+    where F: FnMut(&mut ExchangeDeclareOptsBuilder)
+  {
+    self.raw.declare_with_builder(configure)?;
+    // todo: exchange name to be returned
+    Ok("".to_string())
   }
 }
