@@ -25,8 +25,6 @@ impl Channel {
   pub fn declare_exchange<F>(&self, configure: F) -> Result<String>
     where F: FnMut(&mut ExchangeDeclareOptsBuilder)
   {
-    self.raw.declare_with_builder(configure)?;
-    // todo: exchange name to be returned
-    Ok("".to_string())
+    self.raw.declare_exchange(configure)
   }
 }

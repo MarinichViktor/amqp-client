@@ -101,32 +101,21 @@ impl AmqChannel {
     Ok(())
   }
 
-  pub fn declare_with_builder<F>(&self, configure: F) -> Result<()>
+  pub fn declare_exchange<F>(&self, configure: F) -> Result<String>
     where F: FnOnce(&mut ExchangeDeclareOptsBuilder) -> ()
   {
     let mut builder = ExchangeDeclareOptsBuilder::new();
     configure(&mut builder);
-    self.declare_exchange(builder.build())
+    self.declare_exchange_with_opts(builder.build())
   }
 
-  pub fn declare_exchange(
-    &self,
-    opts: ExchangeDeclareOpts,
-    // name: String,
-    // ty: ExchangeType,
-    // passive: bool,
-    // durable: bool,
-    // auto_delete: bool,
-    // internal: bool,
-    // no_wait: bool,
-    // props: Table
-  ) -> Result<()> {
+  pub fn declare_exchange_with_opts(&self, opts: ExchangeDeclareOpts) -> Result<String> {
     use crate::protocol::exchange::methods::Declare;
+    let name = opts.name;
 
-    info!("Invoking Declare");
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
     stream_writer.invoke(self.id, Declare::new_with_config(
-      opts.name,
+      name.clone(),
       opts.ty,
       opts.passive,
       opts.durable,
@@ -136,9 +125,8 @@ impl AmqChannel {
       opts.props
     ))?;
     self.wait_for_response()?;
-    info!("Received Declare Response");
 
-    Ok(())
+    Ok(name)
   }
 
   fn wait_for_response(&self) -> Result<()> {

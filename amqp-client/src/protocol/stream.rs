@@ -3,7 +3,7 @@ use std::io::{Cursor, Read, Write};
 use std::sync::{Arc, Mutex};
 use anyhow::bail;
 use crate::{Result,Error};
-use log::{info};
+use log::{debug};
 use amqp_protocol::dec::Decode;
 use amqp_protocol::enc::Encode;
 use crate::protocol::frame::{AmqFrame, AmqMethodFrame};
@@ -16,7 +16,7 @@ pub struct AmqpStream {
 impl AmqpStream {
   pub fn new(url: String) -> Self {
     // todo: clone or investigate
-    info!("Connecting to {}", url);
+    debug!("Connecting to {}", url);
     let tcp_stream = TcpStream::connect(url).unwrap();
     let tcp_stream2 = tcp_stream.try_clone().unwrap();
 
@@ -69,17 +69,13 @@ impl AmqpStreamReader {
   }
 
   pub fn next_frame(&mut self) -> Result<AmqFrame> {
-    info!("Reading next frame");
     let mut frame_header = self.read_cursor(7)?;
-    info!("Processing frame header");
     let frame_type = frame_header.read_byte()?;
     let chan = frame_header.read_short()?;
     let size = Decode::read_int(&mut frame_header)?;
-    info!("Next frame size {}", size);
     let body = self.read(size as usize)?;
     // read frame end byte
     self.read(1)?;
-    info!("Frame readed");
 
     let frame = match frame_type {
       1 => {
@@ -99,7 +95,6 @@ impl AmqpStreamReader {
 
   fn read_cursor(&mut self, size: usize) -> Result<Cursor<Vec<u8>>> {
     let mut buff = vec![0_u8;size];
-    info!("Starting read exact {}", size);
     match self.0.read_exact(&mut buff) {
       Ok(_) => {},
       Err(e) => {
@@ -108,7 +103,6 @@ impl AmqpStreamReader {
       }
     };
 
-    info!("Finished read exact");
     Ok(Cursor::new(buff))
   }
 

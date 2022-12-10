@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use log::info;
+use log::{debug, info};
 use amqp_protocol::types::Property;
 use crate::protocol::channel::AmqChannel;
 use crate::protocol::connection::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
@@ -48,6 +48,7 @@ impl AmqConnection {
     let mut reader = self.amqp_stream.reader.lock().unwrap();
     let mut writer = self.amqp_stream.writer.lock().unwrap();
 
+    info!("Connecting to the server");
     writer.send_raw(&PROTOCOL_HEADER)?;
 
     let frame = reader.next_method_frame()?;
@@ -84,9 +85,8 @@ impl AmqConnection {
     };
     writer.invoke(0, open_method)?;
     let frame = reader.next_method_frame()?;
-    let open_ok_method: conn_methods::OpenOk = frame.body.try_into()?;
-
-    info!("Received OpenOk method {:?}", open_ok_method);
+    let _open_ok_method: conn_methods::OpenOk = frame.body.try_into()?;
+    info!("Connected to the server");
 
     drop(reader);
     drop(writer);
@@ -113,9 +113,10 @@ impl AmqConnection {
       let mut reader = reader.lock().unwrap();
 
       while let Ok(frame) = reader.next_frame() {
+        debug!("Received AmqFrame");
         match frame {
           AmqFrame::Method(method_frame) => {
-            println!("Received method frame {:?} {:?}", method_frame.class_id, method_frame.method_id);
+            debug!("Received method frame: channel {}, class_id {}, method_id: {}", method_frame.chan, method_frame.class_id, method_frame.method_id);
             channels.lock().unwrap()[&method_frame.chan].handle_frame(method_frame).unwrap();
           },
           _ => {
