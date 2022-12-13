@@ -1,11 +1,9 @@
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use crate::protocol::stream::AmqpStream;
 use crate::{Result};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use log::info;
-use amqp_protocol::types::Table;
-use crate::protocol::exchange::{ExchangeDeclareOpts, ExchangeDeclareOptsBuilder, ExchangeType};
+use crate::protocol::exchange::{ExchangeDeclareOpts, ExchangeDeclareOptsBuilder};
 use crate::protocol::frame::{AmqMethodFrame};
 
 pub mod methods;
@@ -111,19 +109,10 @@ impl AmqChannel {
 
   pub fn declare_exchange_with_opts(&self, opts: ExchangeDeclareOpts) -> Result<String> {
     use crate::protocol::exchange::methods::Declare;
-    let name = opts.name;
+    let name = opts.name.clone();
 
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
-    stream_writer.invoke(self.id, Declare::new_with_config(
-      name.clone(),
-      opts.ty,
-      opts.passive,
-      opts.durable,
-      opts.auto_delete,
-      opts.internal,
-      opts.no_wait,
-      opts.props
-    ))?;
+    stream_writer.invoke(self.id, Declare::from(opts))?;
     self.wait_for_response()?;
 
     Ok(name)
