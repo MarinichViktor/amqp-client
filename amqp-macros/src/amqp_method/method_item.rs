@@ -1,7 +1,4 @@
-use proc_macro::TokenStream;
-use proc_macro2::Span;
-use quote::{quote};
-use syn::{Ident, Type, Attribute, punctuated::Punctuated, Token, Visibility, braced, parse_macro_input, Lit};
+use syn::{Ident, Type, Attribute, punctuated::Punctuated, Token, Visibility, braced, Lit};
 use syn::parse::{Parse, ParseStream};
 
 pub static FIELD_ANNOTATION_WHITELIST: [&str; 13] = [

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Cursor};
 use byteorder::{BigEndian, ReadBytesExt};
-use log::{debug, info};
+use log::{debug};
 use crate::types::Property;
 use crate::response;
 

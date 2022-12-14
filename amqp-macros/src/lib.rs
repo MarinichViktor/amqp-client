@@ -7,7 +7,6 @@ use amqp_method::method_item::{MethodItem, MethodItemMeta};
 use crate::amqp_method::byte_enc::{imp_try_from_byte_vec, imp_try_into_byte_vec};
 
 mod amqp_method;
-mod builder;
 
 #[proc_macro_attribute]
 pub fn amqp_method(meta: TokenStream, input: TokenStream) -> TokenStream {
@@ -45,12 +44,5 @@ pub fn amqp_method(meta: TokenStream, input: TokenStream) -> TokenStream {
     #try_from_byte_vec_impl
     #method_factory
     #method_getters
-  ))
-}
-
-
-#[proc_macro_attribute]
-pub fn builder(_meta: TokenStream, input: TokenStream) -> TokenStream {
-  TokenStream::from(quote!(
   ))
 }
