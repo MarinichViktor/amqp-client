@@ -44,6 +44,9 @@ impl AmqChannel {
       50 => {
         self.handle_queue_frame(frame)?;
       },
+      60 => {
+        self.handle_basic_frame(frame)?;
+      },
       _ => {
         panic!("Received unknown method {}, {}", frame.class_id, frame.method_id);
       }
@@ -105,6 +108,29 @@ impl AmqChannel {
       METHOD_UNBIND_OK => {
         let payload: UnbindOk = frame.body.try_into()?;
         info!("Received Queue#unbindOk method {:?}", payload);
+        self.waiter_sender.lock().unwrap().send(())?;
+      },
+      _ => {
+        panic!("Received unknown queue method");
+      }
+    }
+    Ok(())
+  }
+
+  fn handle_basic_frame(&self, frame: AmqMethodFrame) -> Result<()> {
+    use crate::protocol::basic::{methods::{ConsumeOk,Deliver}, constants::{METHOD_CONSUME_OK, METHOD_DELIVER}};
+
+    match frame.method_id {
+      METHOD_CONSUME_OK => {
+        let payload: ConsumeOk = frame.body.try_into()?;
+        info!("Received Basic#consumeOk method {:?}", payload.tag);
+        self.waiter_sender.lock().unwrap().send(())?;
+      },
+      METHOD_DELIVER => {
+        let payload: Deliver = frame.body.try_into()?;
+        info!("Received Basic#deliver method ***");
+        let bd = frame.content_body.unwrap();
+        println!("Body {:?}", String::from_utf8(bd));
         self.waiter_sender.lock().unwrap().send(())?;
       },
       _ => {
@@ -220,6 +246,22 @@ impl AmqChannel {
       queue_name: queue.to_string(),
       exchange_name: exchange.to_string(),
       routing_key: routing_key.to_string(),
+      table: HashMap::new()
+    })?;
+    self.wait_for_response()?;
+
+    Ok(())
+  }
+
+  pub fn consume(&self, queue: String, tag: String) -> Result<()> {
+    use crate::protocol::basic::methods::Consume;
+
+    let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
+    stream_writer.invoke(self.id, Consume {
+      reserved1: 0,
+      queue,
+      tag,
+      flags: 0,
       table: HashMap::new()
     })?;
     self.wait_for_response()?;

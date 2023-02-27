@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use log::{debug, info};
 use amqp_protocol::types::Property;
 use crate::protocol::connection::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
-use crate::protocol::frame::{AmqFrame};
+use crate::protocol::frame::{AmqFrame, AmqMethodFrame};
 use crate::protocol::stream::{AmqpStream};
 use crate::{Result, Channel};
 use crate::utils::IdAllocator;
@@ -16,6 +16,7 @@ pub struct AmqConnection {
   amqp_stream: Arc<AmqpStream>,
   channels: Arc<Mutex<HashMap<i16,Arc<Channel>>>>,
   id_allocator: IdAllocator,
+  pending: Arc<Mutex<HashMap<i16, AmqMethodFrame>>>
 }
 
 #[derive(Clone)]
@@ -36,7 +37,8 @@ impl AmqConnection {
       amqp_stream: Arc::new(AmqpStream::new(connection_url)),
       channels: Arc::new(Mutex::new(HashMap::new())),
       id_allocator: IdAllocator::new(),
-      options
+      options,
+      pending: Arc::new(Mutex::new(HashMap::new()))
     }
   }
 
@@ -104,9 +106,10 @@ impl AmqConnection {
     Ok(chan)
   }
 
-  pub fn start_listener(&self) {
+  pub fn start_listener(&mut self) {
     let reader = self.amqp_stream.reader.clone();
     let channels = self.channels.clone();
+    let pending = self.pending.clone();
 
     std::thread::spawn(move || {
       let mut reader = reader.lock().unwrap();
@@ -117,11 +120,44 @@ impl AmqConnection {
           AmqFrame::Method(method_frame) => {
             // todo: check if method expects some body
             debug!("Received method frame: channel {}, class_id {}, method_id: {}", method_frame.chan, method_frame.class_id, method_frame.method_id);
-            channels.lock().unwrap()[&method_frame.chan].handle_frame(method_frame).unwrap();
+            if method_frame.class_id == 60 && method_frame.method_id == 60 {
+              pending.lock().unwrap().insert(method_frame.chan, method_frame);
+            } else {
+              channels.lock().unwrap()[&method_frame.chan].handle_frame(method_frame).unwrap();
+            }
           },
-          // _ => {
-          //   panic!("Unsupported frame type")
-          // }
+          AmqFrame::Header(header) => {
+            let chan = header.chan;
+            debug!("Received header frame: channel {}, class_id {}", header.chan, header.class_id);
+            pending.lock().unwrap().get_mut(&chan).unwrap().content_header = Some(header);
+          },
+          AmqFrame::Body(mut frame) => {
+            debug!("Received body frame");
+            let mut pend_map = pending.lock().unwrap();
+
+            let mut frame_ref = pend_map.remove(&frame.chan).unwrap();
+
+            let mut content_body = frame_ref.content_body.take().unwrap_or_else(|| vec![]);
+            content_body.append(&mut frame.body);
+
+            let curr_len = content_body.len();
+            let body_len = match &frame_ref.content_header {
+              Some(x) => x.body_len,
+              _ => panic!("failed to get content header")
+            };
+            frame_ref.content_body = Some(content_body);
+
+            if curr_len as i64 == body_len {
+              debug!("Received all body, executing");
+              channels.lock().unwrap()[&frame.chan].handle_frame(frame_ref).unwrap();
+            } else {
+              debug!("Waiting for next body frame... curr{}, expected{}", curr_len, body_len);
+              pend_map.insert(frame.chan, frame_ref);
+            }
+          }
+          _ => {
+            // panic!("Unsupported frame type")
+          }
         }
       }
     });

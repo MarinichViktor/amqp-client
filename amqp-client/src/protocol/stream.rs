@@ -3,10 +3,10 @@ use std::io::{Cursor, Read, Write};
 use std::sync::{Arc, Mutex};
 use anyhow::bail;
 use crate::{Result,Error};
-use log::{debug};
+use log::{debug, info};
 use amqp_protocol::dec::Decode;
 use amqp_protocol::enc::Encode;
-use crate::protocol::frame::{AmqFrame, AmqMethodFrame};
+use crate::protocol::frame::{AmqBodyFrame, AmqFrame, AmqHeaderFrame, AmqMethodFrame};
 
 pub struct AmqpStream {
   pub reader: Arc<Mutex<AmqpStreamReader>>,
@@ -53,17 +53,21 @@ impl AmqpStreamWriter {
 pub struct AmqpStreamReader(TcpStream);
 
 impl AmqpStreamReader {
+  // todo: check channel
   pub fn next_method_frame(&mut self) -> Result<AmqMethodFrame> {
-    let frame = self.next_frame()?;
+    let mut frame = self.next_frame()?;
 
     loop {
       match frame {
         AmqFrame::Method(method)  => {
           return Ok(method);
-        }
-        // _ => {
-        //   frame = self.next_frame()?;
+        },
+        // AmqFrame::Header(header) => {
+        //
         // }
+        _ => {
+          frame = self.next_frame()?;
+        }
       }
     }
   }
@@ -76,13 +80,42 @@ impl AmqpStreamReader {
     let body = self.read(size as usize)?;
     // read frame end byte
     self.read(1)?;
+    info!("next_frame frame_type {}, chan {}, size {}, body {:?}", frame_type, chan, size, body);
 
     let frame = match frame_type {
       1 => {
         let mut meta = Cursor::new(body[..4].to_vec());
         let class_id = meta.read_short()?;
         let method_id = meta.read_short()?;
-        AmqFrame::Method(AmqMethodFrame { chan, class_id, method_id, body })
+
+        AmqFrame::Method(AmqMethodFrame { chan, class_id, method_id, body, content_header: None, content_body: None })
+      },
+      2 => {
+        let mut meta = Cursor::new(body[..14].to_vec());
+        let class_id = meta.read_short()?;
+        let _weight = meta.read_short()?;
+        let body_len = meta.read_long()?;
+        let prop_flags = meta.read_short()?;
+
+        let h = AmqFrame::Header(AmqHeaderFrame {
+          chan,
+          class_id,
+          body_len,
+          prop_flags,
+          prop_list: body[14..].to_vec()
+        });
+        info!("Header frame {:?}, chan {}", &h, chan);
+        h
+      }
+      3 => {
+        info!("Body frame {:?}, len {}", &body, body.len());
+        AmqFrame::Body(AmqBodyFrame {
+          chan,
+          body
+        })
+      }
+      4 => {
+        AmqFrame::Heartbeat
       },
       // todo: fix this
       _ => {

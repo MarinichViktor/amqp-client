@@ -1,3 +1,4 @@
+use std::io::stdin;
 use std::thread::{sleep};
 use std::time::Duration;
 use log::{info};
@@ -29,13 +30,18 @@ fn main() {
   });
   info!("Binding queue...");
   chan.bind("q123", "my_awesome_exchange2", "go_here").unwrap();
-  info!("Binded queue...");
-  sleep(Duration::from_secs(15));
-  info!("Unbinding queue...");
-  chan.unbind("q123", "my_awesome_exchange2", "go_here").unwrap();
-  info!("Unbinding queue...");
+  info!("Starting consume...");
+  chan.consume("q123".to_string(), "cons1".to_string()).unwrap();
+  info!("Started consume...");
+  let mut s = String::new();
+  println!("Waiting ...");
+  std::io::stdin().read_line(&mut s).unwrap();
+  // sleep(Duration::from_secs(15));
+  // info!("Unbinding queue...");
+  // chan.unbind("q123", "my_awesome_exchange2", "go_here").unwrap();
+  // info!("Unbinding queue...");
 
-  sleep(Duration::from_secs(15));
+  // sleep(Duration::from_secs(15));
   chan.close().unwrap();
   info!("Channel closed ...");
 }

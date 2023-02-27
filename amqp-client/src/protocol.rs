@@ -5,3 +5,4 @@ pub mod channel;
 pub mod exchange;
 pub use amqp_protocol::types::{AmqMethod, Table};
 pub mod queue;
+pub(crate) mod basic;
