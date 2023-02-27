@@ -2,11 +2,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use log::{debug, info};
 use amqp_protocol::types::Property;
-use crate::protocol::channel::AmqChannel;
 use crate::protocol::connection::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
 use crate::protocol::frame::{AmqFrame};
 use crate::protocol::stream::{AmqpStream};
-use crate::{Result};
+use crate::{Result, Channel};
 use crate::utils::IdAllocator;
 
 pub mod constants;
@@ -15,7 +14,7 @@ pub mod methods;
 pub struct AmqConnection {
   pub options: ConnectionOpts,
   amqp_stream: Arc<AmqpStream>,
-  channels: Arc<Mutex<HashMap<i16,Arc<AmqChannel>>>>,
+  channels: Arc<Mutex<HashMap<i16,Arc<Channel>>>>,
   id_allocator: IdAllocator,
 }
 
@@ -95,9 +94,9 @@ impl AmqConnection {
     Ok(())
   }
 
-  pub fn create_channel(&mut self) -> Result<Arc<AmqChannel>> {
+  pub fn create_channel(&mut self) -> Result<Arc<Channel>> {
     let id = self.id_allocator.allocate();
-    let chan = AmqChannel::new(id, self.amqp_stream.clone());
+    let chan = Channel::new(id, self.amqp_stream.clone());
     let chan = Arc::new(chan);
     self.channels.lock().unwrap().insert(chan.id, chan.clone());
     chan.open()?;
@@ -116,12 +115,13 @@ impl AmqConnection {
         debug!("Received AmqFrame");
         match frame {
           AmqFrame::Method(method_frame) => {
+            // todo: check if method expects some body
             debug!("Received method frame: channel {}, class_id {}, method_id: {}", method_frame.chan, method_frame.class_id, method_frame.method_id);
             channels.lock().unwrap()[&method_frame.chan].handle_frame(method_frame).unwrap();
           },
-          _ => {
-            panic!("Unsupported frame type")
-          }
+          // _ => {
+          //   panic!("Unsupported frame type")
+          // }
         }
       }
     });

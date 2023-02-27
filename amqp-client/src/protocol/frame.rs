@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub enum AmqFrame {
   Method(AmqMethodFrame),
-  Heartbeat
+  // Heartbeat
 }
 
 #[derive(Debug)]

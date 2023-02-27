@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use crate::protocol::stream::AmqpStream;
 use crate::{Result};
@@ -5,6 +6,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use log::info;
 use crate::protocol::exchange::{ExchangeDeclareOpts, ExchangeDeclareOptsBuilder};
 use crate::protocol::frame::{AmqMethodFrame};
+use crate::protocol::queue::QueueDeclareOptsBuilder;
 
 pub mod methods;
 pub mod constants;
@@ -35,16 +37,22 @@ impl AmqChannel {
     match frame.class_id {
       20 => {
         self.handle_chan_frame(frame)?;
-      }
+      },
+      40 => {
+        self.handle_exchange_frame(frame)?;
+      },
+      50 => {
+        self.handle_queue_frame(frame)?;
+      },
       _ => {
-        panic!("Received unknown method");
+        panic!("Received unknown method {}, {}", frame.class_id, frame.method_id);
       }
     }
     Ok(())
   }
 
   fn handle_chan_frame(&self, frame: AmqMethodFrame) -> Result<()> {
-    use crate::protocol::channel::{methods::{OpenOk}, constants::{METHOD_OPEN_OK}};
+    use crate::protocol::channel::{methods::{OpenOk, CloseOk}, constants::{METHOD_OPEN_OK, METHOD_CLOSE_OK}};
 
     match frame.method_id {
       METHOD_OPEN_OK => {
@@ -52,8 +60,55 @@ impl AmqChannel {
         info!("Received open ok method {:?}", payload);
         self.waiter_sender.lock().unwrap().send(())?;
       },
+      METHOD_CLOSE_OK => {
+        let payload: CloseOk = frame.body.try_into()?;
+        info!("Received close ok method {:?}", payload);
+        self.waiter_sender.lock().unwrap().send(())?;
+      },
+      _ => {
+        panic!("Received unknown method {}, {}", frame.class_id, frame.method_id);
+      }
+    }
+    Ok(())
+  }
+
+  fn handle_exchange_frame(&self, frame: AmqMethodFrame) -> Result<()> {
+    use crate::protocol::exchange::{methods::{DeclareOk}, constants::{METHOD_DECLARE_OK}};
+
+    match frame.method_id {
+      METHOD_DECLARE_OK => {
+        let payload: DeclareOk = frame.body.try_into()?;
+        info!("Received declare ok method {:?}", payload);
+        self.waiter_sender.lock().unwrap().send(())?;
+      },
       _ => {
         panic!("Received unknown method");
+      }
+    }
+    Ok(())
+  }
+
+  fn handle_queue_frame(&self, frame: AmqMethodFrame) -> Result<()> {
+    use crate::protocol::queue::{methods::{DeclareOk, BindOk, UnbindOk}, constants::{METHOD_DECLARE_OK, METHOD_BIND_OK, METHOD_UNBIND_OK}};
+
+    match frame.method_id {
+      METHOD_DECLARE_OK => {
+        let payload: DeclareOk = frame.body.try_into()?;
+        info!("Received Queue#declareOk method {:?}", payload);
+        self.waiter_sender.lock().unwrap().send(())?;
+      },
+      METHOD_BIND_OK => {
+        let payload: BindOk = frame.body.try_into()?;
+        info!("Received Queue#bindOk method {:?}", payload);
+        self.waiter_sender.lock().unwrap().send(())?;
+      },
+      METHOD_UNBIND_OK => {
+        let payload: UnbindOk = frame.body.try_into()?;
+        info!("Received Queue#unbindOk method {:?}", payload);
+        self.waiter_sender.lock().unwrap().send(())?;
+      },
+      _ => {
+        panic!("Received unknown queue method");
       }
     }
     Ok(())
@@ -89,11 +144,16 @@ impl AmqChannel {
   }
 
   pub fn close(&self) -> Result<()> {
-    use crate::protocol::channel::methods::CloseOk;
+    use crate::protocol::channel::methods::Close;
 
     info!("Invoking close method");
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
-    stream_writer.invoke(self.id, CloseOk::default())?;
+    stream_writer.invoke(self.id, Close {
+      reply_code: 200,
+      reply_text: "Closed".to_string(),
+      class_id: 0,
+      method_id: 0,
+    })?;
     self.wait_for_response()?;
 
     Ok(())
@@ -116,6 +176,55 @@ impl AmqChannel {
     self.wait_for_response()?;
 
     Ok(name)
+  }
+
+  pub fn declare_queue<F>(&self, configure: F) -> Result<String>
+    where F: Fn(&mut QueueDeclareOptsBuilder) -> ()
+  {
+    use crate::protocol::queue::methods::Declare;
+
+    let mut opts = QueueDeclareOptsBuilder::new();
+
+    configure(&mut opts);
+    let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
+    stream_writer.invoke(self.id, Declare::from(opts.build()))?;
+
+    self.wait_for_response()?;
+
+    Ok(String::from("qwe"))
+  }
+
+  pub fn bind(&self, queue: &str, exchange: &str, routing_key: &str) -> Result<()> {
+    use crate::protocol::queue::methods::Bind;
+
+    let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
+    stream_writer.invoke(self.id, Bind {
+      reserved1: 0,
+      queue_name: queue.to_string(),
+      exchange_name: exchange.to_string(),
+      routing_key: routing_key.to_string(),
+      no_wait: 0,
+      table: HashMap::new()
+    })?;
+    self.wait_for_response()?;
+
+    Ok(())
+  }
+
+  pub fn unbind(&self, queue: &str, exchange: &str, routing_key: &str) -> Result<()> {
+    use crate::protocol::queue::methods::Unbind;
+
+    let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
+    stream_writer.invoke(self.id, Unbind {
+      reserved1: 0,
+      queue_name: queue.to_string(),
+      exchange_name: exchange.to_string(),
+      routing_key: routing_key.to_string(),
+      table: HashMap::new()
+    })?;
+    self.wait_for_response()?;
+
+    Ok(())
   }
 
   fn wait_for_response(&self) -> Result<()> {

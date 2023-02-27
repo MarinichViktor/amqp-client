@@ -54,16 +54,16 @@ pub struct AmqpStreamReader(TcpStream);
 
 impl AmqpStreamReader {
   pub fn next_method_frame(&mut self) -> Result<AmqMethodFrame> {
-    let mut frame = self.next_frame()?;
+    let frame = self.next_frame()?;
 
     loop {
       match frame {
         AmqFrame::Method(method)  => {
           return Ok(method);
         }
-        _ => {
-          frame = self.next_frame()?;
-        }
+        // _ => {
+        //   frame = self.next_frame()?;
+        // }
       }
     }
   }

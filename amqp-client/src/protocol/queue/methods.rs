@@ -64,3 +64,43 @@ pub struct DeclareOk {
   #[int]
   pub consumer_count: i32,
 }
+
+#[derive(Debug, Default)]
+#[amqp_method(c_id=50, m_id=20)]
+pub struct Bind {
+  #[short]
+  pub reserved1: i16,
+  #[short_str]
+  pub queue_name: String,
+  #[short_str]
+  pub exchange_name: String,
+  #[short_str]
+  pub routing_key: String,
+  #[byte]
+  pub no_wait: u8,
+  #[prop_table]
+  pub table: Table,
+}
+
+#[derive(Debug, Default)]
+#[amqp_method(c_id=50, m_id=21)]
+pub struct BindOk {}
+
+#[derive(Debug, Default)]
+#[amqp_method(c_id=50, m_id=50)]
+pub struct Unbind {
+  #[short]
+  pub reserved1: i16,
+  #[short_str]
+  pub queue_name: String,
+  #[short_str]
+  pub exchange_name: String,
+  #[short_str]
+  pub routing_key: String,
+  #[prop_table]
+  pub table: Table,
+}
+
+#[derive(Debug, Default)]
+#[amqp_method(c_id=50, m_id=51)]
+pub struct UnbindOk {}

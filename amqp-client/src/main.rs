@@ -14,10 +14,28 @@ fn main() {
   );
 
   info!("Connection connect ...");
-  connection.open().unwrap();
+  connection.connect().unwrap();
+  info!("Connection finished ...");
 
+  info!("Declaring exchange...");
   let chan = connection.create_channel().unwrap();
-  chan.close().unwrap();
+  let _exchange = chan.declare_exchange(|builder| {
+    builder.name("my_awesome_exchange2".to_string());
+  }).unwrap();
 
-  sleep(Duration::from_secs(5));
+  info!("Declaring queue...");
+  let _queue = chan.declare_queue(|builder| {
+    builder.name(String::from("q123"));
+  });
+  info!("Binding queue...");
+  chan.bind("q123", "my_awesome_exchange2", "go_here").unwrap();
+  info!("Binded queue...");
+  sleep(Duration::from_secs(15));
+  info!("Unbinding queue...");
+  chan.unbind("q123", "my_awesome_exchange2", "go_here").unwrap();
+  info!("Unbinding queue...");
+
+  sleep(Duration::from_secs(15));
+  chan.close().unwrap();
+  info!("Channel closed ...");
 }
