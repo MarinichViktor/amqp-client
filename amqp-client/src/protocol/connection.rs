@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use anyhow::bail;
-use log::{debug, info};
+use log::{info};
 use url::Url;
 use amqp_protocol::types::Property;
 use crate::protocol::connection::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
@@ -76,11 +76,11 @@ impl AmqConnection {
     use crate::protocol::connection::constants::PROTOCOL_HEADER;
     use crate::protocol::connection::methods as conn_methods;
 
-    debug!("Connecting to the server");
+    info!("Connecting to the server");
     let mut reader = self.amqp_stream.reader.lock().unwrap();
     let mut writer = self.amqp_stream.writer.lock().unwrap();
 
-    debug!("Sending ProtocolHeader");
+    info!("Sending ProtocolHeader");
     writer.send_raw(&PROTOCOL_HEADER)?;
 
     let frame = reader.next_method_frame()?;
@@ -98,7 +98,7 @@ impl AmqConnection {
       response: format!("\x00{}\x00{}", self.options.login.as_str(), self.options.password),
       locale: DEFAULT_LOCALE.to_string()
     };
-    debug!("Sending StartOk");
+    info!("Sending StartOk");
     writer.invoke(0, start_ok_method)?;
 
     let frame = reader.next_method_frame()?;
@@ -110,18 +110,18 @@ impl AmqConnection {
       frame_max: tune_method.frame_max,
       heartbeat: tune_method.heartbeat
     };
-    debug!("Sending TuneOk");
+    info!("Sending TuneOk");
     writer.invoke(0, tune_ok_method)?;
 
     let open_method = conn_methods::Open {
       vhost: self.options.vhost.clone(),
       ..conn_methods::Open::default()
     };
-    debug!("Sending OpenMethod");
+    info!("Sending OpenMethod");
     writer.invoke(0, open_method)?;
     let frame = reader.next_method_frame()?;
     let _open_ok_method: conn_methods::OpenOk = frame.body.try_into()?;
-    debug!("Connected to the server");
+    info!("Connected to the server");
 
     drop(reader);
     drop(writer);
@@ -132,7 +132,7 @@ impl AmqConnection {
 
   pub fn create_channel(&mut self) -> Result<Arc<Channel>> {
     let id = self.id_allocator.allocate();
-    debug!("Creating channel with id: {}", id);
+    info!("Creating channel with id: {}", id);
     let chan = Channel::new(id, self.amqp_stream.clone());
     let chan = Arc::new(chan);
     self.channels.lock().unwrap().insert(chan.id, chan.clone());
@@ -150,11 +150,11 @@ impl AmqConnection {
       let mut reader = reader.lock().unwrap();
 
       while let Ok(frame) = reader.next_frame() {
-        debug!("Received AmqFrame");
+        info!("Received AmqFrame");
         match frame {
           AmqFrame::Method(method_frame) => {
             // todo: check if method expects some body
-            debug!("Received method frame: channel {}, class_id {}, method_id: {}", method_frame.chan, method_frame.class_id, method_frame.method_id);
+            info!("Received method frame: channel {}, class_id {}, method_id: {}", method_frame.chan, method_frame.class_id, method_frame.method_id);
             if method_frame.class_id == 60 && method_frame.method_id == 60 {
               pending.lock().unwrap().insert(method_frame.chan, method_frame);
             } else {
@@ -163,11 +163,11 @@ impl AmqConnection {
           },
           AmqFrame::Header(header) => {
             let chan = header.chan;
-            debug!("Received header frame: channel {}, class_id {}", header.chan, header.class_id);
+            info!("Received header frame: channel {}, class_id {}", header.chan, header.class_id);
             pending.lock().unwrap().get_mut(&chan).unwrap().content_header = Some(header);
           },
           AmqFrame::Body(mut frame) => {
-            debug!("Received body frame");
+            info!("Received body frame");
             let mut pend_map = pending.lock().unwrap();
 
             let mut frame_ref = pend_map.remove(&frame.chan).unwrap();
@@ -183,10 +183,10 @@ impl AmqConnection {
             frame_ref.content_body = Some(content_body);
 
             if curr_len as i64 == body_len {
-              debug!("Received all body, executing");
+              info!("Received all body, executing");
               channels.lock().unwrap()[&frame.chan].handle_frame(frame_ref).unwrap();
             } else {
-              debug!("Waiting for next body frame... curr{}, expected{}", curr_len, body_len);
+              info!("Waiting for next body frame... curr{}, expected{}", curr_len, body_len);
               pend_map.insert(frame.chan, frame_ref);
             }
           }

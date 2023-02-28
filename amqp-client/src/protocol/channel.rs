@@ -212,6 +212,7 @@ impl AmqChannel {
   pub fn declare_exchange_with_builder<F>(&self, configure: F) -> Result<()>
     where F: FnOnce(&mut ExchangeDeclareOptsBuilder) -> ()
   {
+    info!("Declare exchange");
     use crate::protocol::exchange::methods::{Declare};
     let mut builder = ExchangeDeclareOptsBuilder::new();
     configure(&mut builder);
@@ -249,6 +250,7 @@ impl AmqChannel {
   {
     use crate::protocol::queue::methods::{Declare, DeclareOk};
 
+    info!("Declare queue");
     let mut opts = QueueDeclareOptsBuilder::new();
 
     configure(&mut opts);
@@ -264,6 +266,7 @@ impl AmqChannel {
   pub fn bind(&self, queue_name: String, exchange_name: String, routing_key: String) -> Result<()> {
     use crate::protocol::queue::methods::Bind;
 
+    info!("Bind queue: {} to: exchange {} with key: {}", queue_name.clone(), exchange_name.clone(), routing_key.clone());
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
     stream_writer.invoke(self.id, Bind {
       reserved1: 0,
@@ -297,6 +300,7 @@ impl AmqChannel {
   pub fn consume(&self, queue: String, tag: String) -> Result<String> {
     use crate::protocol::basic::methods::{Consume,ConsumeOk};
 
+    info!("Consuming queue: {} with tag: {}", queue.clone(), tag.clone());
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
     stream_writer.invoke(self.id, Consume {
       reserved1: 0,
@@ -307,6 +311,7 @@ impl AmqChannel {
     })?;
     let resp_frame = self.wait_for_response()?;
     let payload: ConsumeOk = resp_frame.body.try_into()?;
+    info!("Consume ok with tag: {}", payload.tag.clone());
 
     Ok(payload.tag)
   }
