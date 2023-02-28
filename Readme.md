@@ -9,7 +9,7 @@ At this stage, it's possible to establish a connection with a server and create 
 declared through a channel, and bonded with a routing key. Also, users could start a consumer for the queue.
 TODO: implement message publishing.
 
-Example:
+## Example:
 ```rust
 let connection_uri = "amqp://user:password@localhost:5672/my_vhost";
 let mut connection = Connection::from_uri(connection_uri)?;
