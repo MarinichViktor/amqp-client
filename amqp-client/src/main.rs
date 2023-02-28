@@ -1,38 +1,55 @@
-use std::io::stdin;
+use std::os::unix::raw::mode_t;
+use std::thread;
 use std::thread::{sleep};
-use std::time::Duration;
 use log::{info};
-use amqp_client::{Connection};
+use amqp_client::{Result, Connection, ExchangeType};
 
-fn main() {
+fn main() -> Result<()> {
   env_logger::init();
-  let mut connection = Connection::new(
-    "localhost".to_string(),
-    5672,
-    "user".to_string(),
-    "password".to_string(),
-    "my_vhost".to_string()
-  );
+  let connection_uri = "amqp://user:password@localhost:5672/my_vhost";
 
-  info!("Connection connect ...");
-  connection.connect().unwrap();
-  info!("Connection finished ...");
+  // Establish connection
+  let mut connection = Connection::from_uri(connection_uri)?;
+  connection.connect()?;
 
-  info!("Declaring exchange...");
-  let chan = connection.create_channel().unwrap();
-  let _exchange = chan.declare_exchange(|builder| {
-    builder.name("my_awesome_exchange2".to_string());
-  }).unwrap();
+  // Create channel, queue and exchange
+  let chan = connection.create_channel()?;
+  let exchange = String::from("exch1");
+  chan.exchange_declare(
+    exchange.clone(),
+    ExchangeType::Direct,
+    true,
+    false,
+    false,
+    false,
+    None
+  )?;
 
-  info!("Declaring queue...");
-  let _queue = chan.declare_queue(|builder| {
-    builder.name(String::from("q123"));
+  let queue = chan.queue_declare(
+    "",
+    false,
+    false,
+    false,
+    false,
+    None
+  )?;
+
+  // Binding queue to the exchange and starting consumer
+  let routing_key = String::from("foo.bar");
+  chan.bind(
+    queue.clone(),
+    exchange.clone(),
+    routing_key.clone()
+  )?;
+
+  let queue_recv = chan.consume(queue.clone())?;
+  thread::spawn(move || {
+    for frame in queue_recv {
+      let body = frame.content_body.unwrap();
+      println!("Received body frame: {:?}", String::from_utf8(body));
+    }
   });
-  info!("Binding queue...");
-  chan.bind("q123", "my_awesome_exchange2", "go_here").unwrap();
-  info!("Starting consume...");
-  chan.consume("q123".to_string(), "cons1".to_string()).unwrap();
-  info!("Started consume...");
+
   let mut s = String::new();
   println!("Waiting ...");
   std::io::stdin().read_line(&mut s).unwrap();
@@ -44,4 +61,5 @@ fn main() {
   // sleep(Duration::from_secs(15));
   chan.close().unwrap();
   info!("Channel closed ...");
+  Ok(())
 }

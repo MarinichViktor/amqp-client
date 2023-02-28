@@ -20,6 +20,7 @@ pub struct AmqChannel {
   waiter_channel: Mutex<Receiver<AmqMethodFrame>>,
   waiter_sender: Mutex<Sender<AmqMethodFrame>>,
   active: bool,
+  consumers: Arc<Mutex<HashMap<String, Sender<AmqMethodFrame>>>>
 }
 
 impl AmqChannel {
@@ -30,7 +31,8 @@ impl AmqChannel {
       amqp_stream,
       waiter_channel: Mutex::new(receiver),
       waiter_sender: Mutex::new(sender),
-      active: true
+      active: true,
+      consumers: Arc::new(Mutex::new(HashMap::new()))
     }
   }
 
@@ -123,18 +125,21 @@ impl AmqChannel {
     use crate::protocol::basic::{methods::{ConsumeOk,Deliver}, constants::{METHOD_CONSUME_OK, METHOD_DELIVER}};
 
     match frame.method_id {
-      METHOD_CONSUME_OK|METHOD_DELIVER => {
+      METHOD_CONSUME_OK => {
         // let payload: ConsumeOk = frame.body.try_into()?;
         // info!("Received Basic#consumeOk method {:?}", payload.tag);
         self.waiter_sender.lock().unwrap().send(frame)?;
       },
-      // METHOD_DELIVER => {
-      //   let payload: Deliver = frame.body.try_into()?;
+      METHOD_DELIVER => {
+        let payload: Deliver = frame.body.clone().try_into()?;
       //   info!("Received Basic#deliver method ***");
       //   let bd = frame.content_body.unwrap();
       //   println!("Body {:?}", String::from_utf8(bd));
       //   self.waiter_sender.lock().unwrap().send(())?;
-      // },
+        let consumers = self.consumers.lock().unwrap();
+        let handler = consumers.get(&payload.consumer_tag).unwrap();
+        handler.send(frame)?;
+      },
       _ => {
         panic!("Received unknown queue method");
       }
@@ -297,23 +302,25 @@ impl AmqChannel {
     Ok(())
   }
 
-  pub fn consume(&self, queue: String, tag: String) -> Result<String> {
+  pub fn consume(&self, queue: String) -> Result<Receiver<AmqMethodFrame>> {
     use crate::protocol::basic::methods::{Consume,ConsumeOk};
 
-    info!("Consuming queue: {} with tag: {}", queue.clone(), tag.clone());
+    info!("Consuming queue: {}", queue.clone());
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
     stream_writer.invoke(self.id, Consume {
       reserved1: 0,
       queue,
-      tag,
+      tag: String::from(""),
       flags: 0,
       table: HashMap::new()
     })?;
     let resp_frame = self.wait_for_response()?;
     let payload: ConsumeOk = resp_frame.body.try_into()?;
     info!("Consume ok with tag: {}", payload.tag.clone());
+    let (tx, rx) = channel();
+    self.consumers.lock().unwrap().insert(payload.tag, tx);
 
-    Ok(payload.tag)
+    Ok(rx)
   }
 
   fn wait_for_response(&self) -> Result<AmqMethodFrame> {
