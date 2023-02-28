@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use anyhow::bail;
 use log::{debug, info};
+use url::Url;
 use amqp_protocol::types::Property;
 use crate::protocol::connection::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
 use crate::protocol::frame::{AmqFrame, AmqMethodFrame};
@@ -29,6 +31,34 @@ pub struct ConnectionOpts {
 }
 
 impl AmqConnection {
+  pub fn from_uri(uri: &str) -> Result<Self> {
+    let url = Url::parse(uri).unwrap();
+    let host = if url.has_host() {
+      url.host().unwrap().to_string()
+    } else {
+      String::from("localhost")
+    };
+    let port = url.port().unwrap_or_else(|| 5672);
+    let (username, password) = if url.has_authority() {
+      (
+        url.username().to_string(),
+        url.password().unwrap().to_string()
+      )
+    } else {
+      bail!("Provide username and password in the connection url");
+    };
+
+    Ok(
+      AmqConnection::new(
+        host,
+        port,
+        username,
+        password,
+        url.path()[1..].to_string(),
+      )
+    )
+  }
+
   pub fn new(host: String, port: u16, login: String, password: String, vhost: String) -> Self {
     let connection_url = format!("{}:{}", host.clone(), port);
     let options = ConnectionOpts { host, port, login, password, vhost };
@@ -46,10 +76,11 @@ impl AmqConnection {
     use crate::protocol::connection::constants::PROTOCOL_HEADER;
     use crate::protocol::connection::methods as conn_methods;
 
+    debug!("Connecting to the server");
     let mut reader = self.amqp_stream.reader.lock().unwrap();
     let mut writer = self.amqp_stream.writer.lock().unwrap();
 
-    info!("Connecting to the server");
+    debug!("Sending ProtocolHeader");
     writer.send_raw(&PROTOCOL_HEADER)?;
 
     let frame = reader.next_method_frame()?;
@@ -67,6 +98,7 @@ impl AmqConnection {
       response: format!("\x00{}\x00{}", self.options.login.as_str(), self.options.password),
       locale: DEFAULT_LOCALE.to_string()
     };
+    debug!("Sending StartOk");
     writer.invoke(0, start_ok_method)?;
 
     let frame = reader.next_method_frame()?;
@@ -78,16 +110,18 @@ impl AmqConnection {
       frame_max: tune_method.frame_max,
       heartbeat: tune_method.heartbeat
     };
+    debug!("Sending TuneOk");
     writer.invoke(0, tune_ok_method)?;
 
     let open_method = conn_methods::Open {
       vhost: self.options.vhost.clone(),
       ..conn_methods::Open::default()
     };
+    debug!("Sending OpenMethod");
     writer.invoke(0, open_method)?;
     let frame = reader.next_method_frame()?;
     let _open_ok_method: conn_methods::OpenOk = frame.body.try_into()?;
-    info!("Connected to the server");
+    debug!("Connected to the server");
 
     drop(reader);
     drop(writer);
@@ -98,6 +132,7 @@ impl AmqConnection {
 
   pub fn create_channel(&mut self) -> Result<Arc<Channel>> {
     let id = self.id_allocator.allocate();
+    debug!("Creating channel with id: {}", id);
     let chan = Channel::new(id, self.amqp_stream.clone());
     let chan = Arc::new(chan);
     self.channels.lock().unwrap().insert(chan.id, chan.clone());

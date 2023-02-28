@@ -3,10 +3,12 @@ use std::sync::{Arc, Mutex};
 use crate::protocol::stream::AmqpStream;
 use crate::{Result};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use log::info;
-use crate::protocol::exchange::{ExchangeDeclareOpts, ExchangeDeclareOptsBuilder};
+use log::{debug, info};
+use amqp_protocol::types::{Table};
+use crate::protocol::basic::methods::ConsumeOk;
+use crate::protocol::exchange::{ExchangeDeclareOptsBuilder, ExchangeType};
 use crate::protocol::frame::{AmqMethodFrame};
-use crate::protocol::queue::QueueDeclareOptsBuilder;
+use crate::protocol::queue::{QueueDeclareOptsBuilder};
 
 pub mod methods;
 pub mod constants;
@@ -15,8 +17,8 @@ pub mod constants;
 pub struct AmqChannel {
   pub id: i16,
   amqp_stream: Arc<AmqpStream>,
-  waiter_channel: Mutex<Receiver<()>>,
-  waiter_sender: Mutex<Sender<()>>,
+  waiter_channel: Mutex<Receiver<AmqMethodFrame>>,
+  waiter_sender: Mutex<Sender<AmqMethodFrame>>,
   active: bool,
 }
 
@@ -58,16 +60,16 @@ impl AmqChannel {
     use crate::protocol::channel::{methods::{OpenOk, CloseOk}, constants::{METHOD_OPEN_OK, METHOD_CLOSE_OK}};
 
     match frame.method_id {
-      METHOD_OPEN_OK => {
-        let payload: OpenOk = frame.body.try_into()?;
-        info!("Received open ok method {:?}", payload);
-        self.waiter_sender.lock().unwrap().send(())?;
+      METHOD_OPEN_OK|METHOD_CLOSE_OK => {
+        // let payload: OpenOk = frame.body.try_into()?;
+        // info!("Received open ok method {:?}", payload);
+        self.waiter_sender.lock().unwrap().send(frame)?;
       },
-      METHOD_CLOSE_OK => {
-        let payload: CloseOk = frame.body.try_into()?;
-        info!("Received close ok method {:?}", payload);
-        self.waiter_sender.lock().unwrap().send(())?;
-      },
+      // METHOD_CLOSE_OK => {
+      //   let payload: CloseOk = frame.body.try_into()?;
+      //   info!("Received close ok method {:?}", payload);
+      //   self.waiter_sender.lock().unwrap().send(())?;
+      // },
       _ => {
         panic!("Received unknown method {}, {}", frame.class_id, frame.method_id);
       }
@@ -80,9 +82,9 @@ impl AmqChannel {
 
     match frame.method_id {
       METHOD_DECLARE_OK => {
-        let payload: DeclareOk = frame.body.try_into()?;
-        info!("Received declare ok method {:?}", payload);
-        self.waiter_sender.lock().unwrap().send(())?;
+        // let payload: DeclareOk = frame.body.try_into()?;
+        // info!("Received declare ok method {:?}", payload);
+        self.waiter_sender.lock().unwrap().send(frame)?;
       },
       _ => {
         panic!("Received unknown method");
@@ -95,21 +97,21 @@ impl AmqChannel {
     use crate::protocol::queue::{methods::{DeclareOk, BindOk, UnbindOk}, constants::{METHOD_DECLARE_OK, METHOD_BIND_OK, METHOD_UNBIND_OK}};
 
     match frame.method_id {
-      METHOD_DECLARE_OK => {
-        let payload: DeclareOk = frame.body.try_into()?;
-        info!("Received Queue#declareOk method {:?}", payload);
-        self.waiter_sender.lock().unwrap().send(())?;
+      METHOD_DECLARE_OK|METHOD_BIND_OK|METHOD_UNBIND_OK => {
+        // let payload: DeclareOk = frame.body.try_into()?;
+        // info!("Received Queue#declareOk method {:?}", payload);
+        self.waiter_sender.lock().unwrap().send(frame)?;
       },
-      METHOD_BIND_OK => {
-        let payload: BindOk = frame.body.try_into()?;
-        info!("Received Queue#bindOk method {:?}", payload);
-        self.waiter_sender.lock().unwrap().send(())?;
-      },
-      METHOD_UNBIND_OK => {
-        let payload: UnbindOk = frame.body.try_into()?;
-        info!("Received Queue#unbindOk method {:?}", payload);
-        self.waiter_sender.lock().unwrap().send(())?;
-      },
+      // METHOD_BIND_OK => {
+        // let payload: BindOk = frame.body.try_into()?;
+        // info!("Received Queue#bindOk method {:?}", payload);
+        // self.waiter_sender.lock().unwrap().send(())?;
+      // },
+      // METHOD_UNBIND_OK => {
+        // let payload: UnbindOk = frame.body.try_into()?;
+        // info!("Received Queue#unbindOk method {:?}", payload);
+        // self.waiter_sender.lock().unwrap().send(())?;
+      // },
       _ => {
         panic!("Received unknown queue method");
       }
@@ -121,18 +123,18 @@ impl AmqChannel {
     use crate::protocol::basic::{methods::{ConsumeOk,Deliver}, constants::{METHOD_CONSUME_OK, METHOD_DELIVER}};
 
     match frame.method_id {
-      METHOD_CONSUME_OK => {
-        let payload: ConsumeOk = frame.body.try_into()?;
-        info!("Received Basic#consumeOk method {:?}", payload.tag);
-        self.waiter_sender.lock().unwrap().send(())?;
+      METHOD_CONSUME_OK|METHOD_DELIVER => {
+        // let payload: ConsumeOk = frame.body.try_into()?;
+        // info!("Received Basic#consumeOk method {:?}", payload.tag);
+        self.waiter_sender.lock().unwrap().send(frame)?;
       },
-      METHOD_DELIVER => {
-        let payload: Deliver = frame.body.try_into()?;
-        info!("Received Basic#deliver method ***");
-        let bd = frame.content_body.unwrap();
-        println!("Body {:?}", String::from_utf8(bd));
-        self.waiter_sender.lock().unwrap().send(())?;
-      },
+      // METHOD_DELIVER => {
+      //   let payload: Deliver = frame.body.try_into()?;
+      //   info!("Received Basic#deliver method ***");
+      //   let bd = frame.content_body.unwrap();
+      //   println!("Body {:?}", String::from_utf8(bd));
+      //   self.waiter_sender.lock().unwrap().send(())?;
+      // },
       _ => {
         panic!("Received unknown queue method");
       }
@@ -143,7 +145,7 @@ impl AmqChannel {
   pub fn open(&self) -> Result<()> {
     use crate::protocol::channel::methods::Open;
 
-    info!("Invoking Open");
+    debug!("Opening channel {}", self.id);
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
     stream_writer.invoke(self.id, Open::default())?;
     self.wait_for_response()?;
@@ -154,7 +156,7 @@ impl AmqChannel {
   pub fn flow(&mut self, active: bool) -> Result<()> {
     use crate::protocol::channel::methods::Flow;
 
-    info!("Invoking Flow");
+    info!("Invoking channel {} Flow", self.id);
     if self.active == active {
       return Ok(())
     }
@@ -172,7 +174,7 @@ impl AmqChannel {
   pub fn close(&self) -> Result<()> {
     use crate::protocol::channel::methods::Close;
 
-    info!("Invoking close method");
+    info!("Closing channel {}", self.id);
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
     stream_writer.invoke(self.id, Close {
       reply_code: 200,
@@ -185,29 +187,67 @@ impl AmqChannel {
     Ok(())
   }
 
-  pub fn declare_exchange<F>(&self, configure: F) -> Result<String>
-    where F: FnOnce(&mut ExchangeDeclareOptsBuilder) -> ()
+  pub fn exchange_declare(
+    &self,
+    name: String,
+    ty: ExchangeType,
+    durable: bool,
+    passive: bool,
+    auto_delete: bool,
+    internal: bool,
+    props: Option<Table>
+  ) -> Result<()>
   {
-    let mut builder = ExchangeDeclareOptsBuilder::new();
-    configure(&mut builder);
-    self.declare_exchange_with_opts(builder.build())
+    self.declare_exchange_with_builder(|builder| {
+      builder.name(name);
+      builder.ty(ty);
+      builder.durable(durable);
+      builder.passive(passive);
+      builder.auto_delete(auto_delete);
+      builder.internal(internal);
+      builder.props(props.unwrap_or_else(|| HashMap::new()))
+    })
   }
 
-  pub fn declare_exchange_with_opts(&self, opts: ExchangeDeclareOpts) -> Result<String> {
-    use crate::protocol::exchange::methods::Declare;
-    let name = opts.name.clone();
+  pub fn declare_exchange_with_builder<F>(&self, configure: F) -> Result<()>
+    where F: FnOnce(&mut ExchangeDeclareOptsBuilder) -> ()
+  {
+    use crate::protocol::exchange::methods::{Declare};
+    let mut builder = ExchangeDeclareOptsBuilder::new();
+    configure(&mut builder);
+    let opts = builder.build();
 
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
     stream_writer.invoke(self.id, Declare::from(opts))?;
     self.wait_for_response()?;
 
-    Ok(name)
+    Ok(())
   }
 
-  pub fn declare_queue<F>(&self, configure: F) -> Result<String>
-    where F: Fn(&mut QueueDeclareOptsBuilder) -> ()
+  pub fn queue_declare(
+    &self,
+    name: &str,
+    durable: bool,
+    passive: bool,
+    auto_delete: bool,
+    exclusive: bool,
+    props: Option<Table>
+  ) -> Result<String> {
+    self.queue_declare_with_builder(move |builder| {
+      builder.name(name.to_string());
+      builder.durable(durable);
+      builder.passive(passive);
+      builder.auto_delete(auto_delete);
+      builder.exclusive(exclusive);
+      builder.no_wait(false);
+      builder.props(props.unwrap_or_else(|| Table::new()));
+    })
+  }
+
+  pub fn queue_declare_with_builder<F>(&self, configure: F) -> Result<String>
+    where F: FnOnce(&mut QueueDeclareOptsBuilder) -> ()
   {
-    use crate::protocol::queue::methods::Declare;
+    use crate::protocol::queue::methods::{Declare, DeclareOk};
 
     let mut opts = QueueDeclareOptsBuilder::new();
 
@@ -215,20 +255,21 @@ impl AmqChannel {
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
     stream_writer.invoke(self.id, Declare::from(opts.build()))?;
 
-    self.wait_for_response()?;
+    let resp_frame = self.wait_for_response()?;
+    let payload: DeclareOk = resp_frame.body.try_into()?;
 
-    Ok(String::from("qwe"))
+    Ok(payload.name)
   }
 
-  pub fn bind(&self, queue: &str, exchange: &str, routing_key: &str) -> Result<()> {
+  pub fn bind(&self, queue_name: String, exchange_name: String, routing_key: String) -> Result<()> {
     use crate::protocol::queue::methods::Bind;
 
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
     stream_writer.invoke(self.id, Bind {
       reserved1: 0,
-      queue_name: queue.to_string(),
-      exchange_name: exchange.to_string(),
-      routing_key: routing_key.to_string(),
+      queue_name,
+      exchange_name,
+      routing_key,
       no_wait: 0,
       table: HashMap::new()
     })?;
@@ -253,8 +294,8 @@ impl AmqChannel {
     Ok(())
   }
 
-  pub fn consume(&self, queue: String, tag: String) -> Result<()> {
-    use crate::protocol::basic::methods::Consume;
+  pub fn consume(&self, queue: String, tag: String) -> Result<String> {
+    use crate::protocol::basic::methods::{Consume,ConsumeOk};
 
     let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
     stream_writer.invoke(self.id, Consume {
@@ -264,12 +305,13 @@ impl AmqChannel {
       flags: 0,
       table: HashMap::new()
     })?;
-    self.wait_for_response()?;
+    let resp_frame = self.wait_for_response()?;
+    let payload: ConsumeOk = resp_frame.body.try_into()?;
 
-    Ok(())
+    Ok(payload.tag)
   }
 
-  fn wait_for_response(&self) -> Result<()> {
+  fn wait_for_response(&self) -> Result<AmqMethodFrame> {
     Ok(self.waiter_channel.lock().unwrap().recv()?)
   }
 }

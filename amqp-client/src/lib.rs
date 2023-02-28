@@ -8,3 +8,4 @@ pub use crate::protocol::{
   connection::AmqConnection as Connection,
   channel::AmqChannel as Channel
 };
+pub use crate::protocol::exchange::ExchangeType as ExchangeType;
