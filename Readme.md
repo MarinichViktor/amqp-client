@@ -3,14 +3,16 @@
 Learning project with the main goal to build the rabbitmq client via implementation bulk of the AMQP protocol.
 
 
-How to run client:
+Usage example:
+1. Establish connection
 ```rust
-// Establish connection
 let connection_uri = "amqp://user:password@localhost:5672/my_vhost";
 let mut connection = Connection::from_uri(connection_uri)?;
 connection.connect()?;
+```
 
-// Create channel, queue and exchange
+2. Create channel, queue and exchange
+```rust
 let channel = connection.create_channel()?;
 let exchange = String::from("exch1");
 channel.exchange_declare(
@@ -31,8 +33,9 @@ let queue = channel.queue_declare(
   false,
   None
 )?;
-
-// Binding queue to the exchange and starting consumer
+```
+3. Binding queue to the exchange and start a consumer
+```rust
 let routing_key = String::from("foo.bar");
 channel.bind(
   queue.clone(),
