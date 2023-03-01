@@ -16,6 +16,17 @@ pub struct AmqMethodFrame {
   pub content_body: Option<Vec<u8>>,
 }
 
+impl AmqMethodFrame {
+  pub fn has_content(&self) -> bool {
+    // todo: currently hardcoded only to check if deliver method
+    if self.class_id == 60 && self.method_id == 60 {
+      true
+    } else {
+      false
+    }
+  }
+}
+
 #[derive(Debug)]
 pub struct AmqHeaderFrame {
   pub chan: i16,

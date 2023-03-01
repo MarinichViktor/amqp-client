@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use anyhow::bail;
-use log::{info};
+use log::{debug, info};
 use url::Url;
 use amqp_protocol::types::Property;
 use crate::protocol::connection::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
@@ -150,12 +150,10 @@ impl AmqConnection {
       let mut reader = reader.lock().unwrap();
 
       while let Ok(frame) = reader.next_frame() {
-        info!("Received AmqFrame");
         match frame {
           AmqFrame::Method(method_frame) => {
-            // todo: check if method expects some body
-            info!("Received method frame: channel {}, class_id {}, method_id: {}", method_frame.chan, method_frame.class_id, method_frame.method_id);
-            if method_frame.class_id == 60 && method_frame.method_id == 60 {
+            debug!("Received method frame: channel {}, class_id {}, method_id: {}", method_frame.chan, method_frame.class_id, method_frame.method_id);
+            if method_frame.has_content() {
               pending.lock().unwrap().insert(method_frame.chan, method_frame);
             } else {
               channels.lock().unwrap()[&method_frame.chan].handle_frame(method_frame).unwrap();
@@ -163,31 +161,31 @@ impl AmqConnection {
           },
           AmqFrame::Header(header) => {
             let chan = header.chan;
-            info!("Received header frame: channel {}, class_id {}", header.chan, header.class_id);
+            debug!("Received header frame: channel {}, class_id {}", header.chan, header.class_id);
             pending.lock().unwrap().get_mut(&chan).unwrap().content_header = Some(header);
           },
           AmqFrame::Body(mut frame) => {
-            info!("Received body frame");
-            let mut pend_map = pending.lock().unwrap();
+            debug!("Received body frame");
+            let mut pending_frames = pending.lock().unwrap();
 
-            let mut frame_ref = pend_map.remove(&frame.chan).unwrap();
+            let mut partial_frame = pending_frames.remove(&frame.chan).unwrap();
 
-            let mut content_body = frame_ref.content_body.take().unwrap_or_else(|| vec![]);
+            let mut content_body = partial_frame.content_body.take().unwrap_or_else(|| vec![]);
             content_body.append(&mut frame.body);
 
-            let curr_len = content_body.len();
-            let body_len = match &frame_ref.content_header {
+            let curr_body_len = content_body.len();
+            let expected_body_len = match &partial_frame.content_header {
               Some(x) => x.body_len,
               _ => panic!("failed to get content header")
             };
-            frame_ref.content_body = Some(content_body);
+            partial_frame.content_body = Some(content_body);
 
-            if curr_len as i64 == body_len {
-              info!("Received all body, executing");
-              channels.lock().unwrap()[&frame.chan].handle_frame(frame_ref).unwrap();
+            if curr_body_len as i64 == expected_body_len {
+              debug!("Received full frame body");
+              channels.lock().unwrap()[&frame.chan].handle_frame(partial_frame).unwrap();
             } else {
-              info!("Waiting for next body frame... curr{}, expected{}", curr_len, body_len);
-              pend_map.insert(frame.chan, frame_ref);
+              debug!("Received {} bytes, expected {}. Waiting on the next frames", curr_body_len, expected_body_len);
+              pending_frames.insert(frame.chan, partial_frame);
             }
           }
           _ => {

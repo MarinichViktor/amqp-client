@@ -1,6 +1,4 @@
-use std::os::unix::raw::mode_t;
 use std::thread;
-use std::thread::{sleep};
 use log::{info};
 use amqp_client::{Result, Connection, ExchangeType};
 

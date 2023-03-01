@@ -97,15 +97,13 @@ impl AmqpStreamReader {
         let body_len = meta.read_long()?;
         let prop_flags = meta.read_short()?;
 
-        let h = AmqFrame::Header(AmqHeaderFrame {
+        AmqFrame::Header(AmqHeaderFrame {
           chan,
           class_id,
           body_len,
           prop_flags,
           prop_list: body[14..].to_vec()
-        });
-        info!("Header frame {:?}, chan {}", &h, chan);
-        h
+        })
       }
       3 => {
         info!("Body frame {:?}, len {}", &body, body.len());
