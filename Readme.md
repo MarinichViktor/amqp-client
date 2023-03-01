@@ -1,4 +1,5 @@
-# Rabbitmq client (AMQP-0.9.1 client)
+# RabbitMQ client 
+For learning/research purposes.
 
 ## Goals
 The main goal of this project is to build as simple as possible but the working implementation of the RabbitMQ client
@@ -54,9 +55,9 @@ thread::spawn(move || {
   }
 });
 
-//TDB
+// TBD
 ```
-To be done:
+## To be done:
 - [x] Connection
 - [x] Channel
 - [X] Exchange
