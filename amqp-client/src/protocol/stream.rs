@@ -6,7 +6,7 @@ use crate::{Result,Error};
 use log::{debug, info};
 use amqp_protocol::dec::Decode;
 use amqp_protocol::enc::Encode;
-use crate::protocol::frame::{AmqBodyFrame, AmqFrame, AmqHeaderFrame, AmqMethodFrame};
+use crate::protocol::frame::{BodyFrame, Frame, HeaderFrame, MethodFrame};
 
 pub struct AmqpStream {
   pub reader: Arc<Mutex<AmqpStreamReader>>,
@@ -54,12 +54,12 @@ pub struct AmqpStreamReader(TcpStream);
 
 impl AmqpStreamReader {
   // todo: check channel
-  pub fn next_method_frame(&mut self) -> Result<AmqMethodFrame> {
+  pub fn next_method_frame(&mut self) -> Result<MethodFrame> {
     let mut frame = self.next_frame()?;
 
     loop {
       match frame {
-        AmqFrame::Method(method)  => {
+        Frame::Method(method)  => {
           return Ok(method);
         },
         // AmqFrame::Header(header) => {
@@ -72,7 +72,7 @@ impl AmqpStreamReader {
     }
   }
 
-  pub fn next_frame(&mut self) -> Result<AmqFrame> {
+  pub fn next_frame(&mut self) -> Result<Frame> {
     let mut frame_header = self.read_cursor(7)?;
     let frame_type = frame_header.read_byte()?;
     let chan = frame_header.read_short()?;
@@ -88,7 +88,7 @@ impl AmqpStreamReader {
         let class_id = meta.read_short()?;
         let method_id = meta.read_short()?;
 
-        AmqFrame::Method(AmqMethodFrame { chan, class_id, method_id, body, content_header: None, content_body: None })
+        Frame::Method(MethodFrame { chan, class_id, method_id, body, content_header: None, content_body: None })
       },
       2 => {
         let mut meta = Cursor::new(body[..14].to_vec());
@@ -97,7 +97,7 @@ impl AmqpStreamReader {
         let body_len = meta.read_long()?;
         let prop_flags = meta.read_short()?;
 
-        AmqFrame::Header(AmqHeaderFrame {
+        Frame::Header(HeaderFrame {
           chan,
           class_id,
           body_len,
@@ -107,13 +107,13 @@ impl AmqpStreamReader {
       }
       3 => {
         info!("Body frame {:?}, len {}", &body, body.len());
-        AmqFrame::Body(AmqBodyFrame {
+        Frame::Body(BodyFrame {
           chan,
           body
         })
       }
       4 => {
-        AmqFrame::Heartbeat
+        Frame::Heartbeat
       },
       // todo: fix this
       _ => {

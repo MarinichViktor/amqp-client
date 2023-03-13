@@ -1,22 +1,22 @@
 #[derive(Debug)]
-pub enum AmqFrame {
-  Method(AmqMethodFrame),
-  Header(AmqHeaderFrame),
-  Body(AmqBodyFrame),
+pub enum Frame {
+  Method(MethodFrame),
+  Header(HeaderFrame),
+  Body(BodyFrame),
   Heartbeat
 }
 
 #[derive(Debug)]
-pub struct AmqMethodFrame {
+pub struct MethodFrame {
   pub chan: i16,
   pub class_id: i16,
   pub method_id: i16,
   pub body: Vec<u8>,
-  pub content_header: Option<AmqHeaderFrame>,
+  pub content_header: Option<HeaderFrame>,
   pub content_body: Option<Vec<u8>>,
 }
 
-impl AmqMethodFrame {
+impl MethodFrame {
   pub fn has_content(&self) -> bool {
     // todo: currently hardcoded only to check if deliver method
     if self.class_id == 60 && self.method_id == 60 {
@@ -28,7 +28,7 @@ impl AmqMethodFrame {
 }
 
 #[derive(Debug)]
-pub struct AmqHeaderFrame {
+pub struct HeaderFrame {
   pub chan: i16,
   pub class_id: i16,
   pub body_len: i64,
@@ -37,7 +37,7 @@ pub struct AmqHeaderFrame {
 }
 
 #[derive(Debug)]
-pub struct AmqBodyFrame {
+pub struct BodyFrame {
   pub chan: i16,
   pub body: Vec<u8>,
 }

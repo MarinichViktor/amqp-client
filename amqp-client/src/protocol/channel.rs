@@ -6,7 +6,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use log::{debug};
 use amqp_protocol::types::{Table};
 use crate::protocol::exchange::{ExchangeDeclareOptsBuilder, ExchangeType};
-use crate::protocol::frame::{AmqMethodFrame};
+use crate::protocol::frame::{MethodFrame};
 use crate::protocol::queue::{QueueDeclareOptsBuilder};
 
 pub mod methods;
@@ -15,10 +15,10 @@ pub mod constants;
 pub struct AmqChannel {
   pub id: i16,
   amqp_stream: Arc<AmqpStream>,
-  waiter_channel: Mutex<Receiver<AmqMethodFrame>>,
-  waiter_sender: Mutex<Sender<AmqMethodFrame>>,
+  waiter_channel: Mutex<Receiver<MethodFrame>>,
+  waiter_sender: Mutex<Sender<MethodFrame>>,
   active: bool,
-  consumers: Arc<Mutex<HashMap<String, Sender<AmqMethodFrame>>>>
+  consumers: Arc<Mutex<HashMap<String, Sender<MethodFrame>>>>
 }
 
 impl AmqChannel {
@@ -189,7 +189,7 @@ impl AmqChannel {
     Ok(())
   }
 
-  pub fn consume(&self, queue: String) -> Result<Receiver<AmqMethodFrame>> {
+  pub fn consume(&self, queue: String) -> Result<Receiver<MethodFrame>> {
     use crate::protocol::basic::methods::{Consume,ConsumeOk};
 
     debug!("Consuming queue: {}", queue.clone());
@@ -211,7 +211,7 @@ impl AmqChannel {
   }
 
   // todo: refactor result to avoid response prefix
-  pub fn handle_frame(&self, frame: AmqMethodFrame) -> Result<()> {
+  pub fn handle_frame(&self, frame: MethodFrame) -> Result<()> {
     match frame.class_id {
       20 => {
         self.handle_chan_frame(frame)?;
@@ -232,7 +232,7 @@ impl AmqChannel {
     Ok(())
   }
 
-  fn handle_chan_frame(&self, frame: AmqMethodFrame) -> Result<()> {
+  fn handle_chan_frame(&self, frame: MethodFrame) -> Result<()> {
     use crate::protocol::channel::{methods::{OpenOk, CloseOk}, constants::{METHOD_OPEN_OK, METHOD_CLOSE_OK}};
 
     match frame.method_id {
@@ -246,7 +246,7 @@ impl AmqChannel {
     Ok(())
   }
 
-  fn handle_exchange_frame(&self, frame: AmqMethodFrame) -> Result<()> {
+  fn handle_exchange_frame(&self, frame: MethodFrame) -> Result<()> {
     use crate::protocol::exchange::{methods::{DeclareOk}, constants::{METHOD_DECLARE_OK}};
 
     match frame.method_id {
@@ -260,7 +260,7 @@ impl AmqChannel {
     Ok(())
   }
 
-  fn handle_queue_frame(&self, frame: AmqMethodFrame) -> Result<()> {
+  fn handle_queue_frame(&self, frame: MethodFrame) -> Result<()> {
     use crate::protocol::queue::{methods::{DeclareOk, BindOk, UnbindOk}, constants::{METHOD_DECLARE_OK, METHOD_BIND_OK, METHOD_UNBIND_OK}};
 
     match frame.method_id {
@@ -274,7 +274,7 @@ impl AmqChannel {
     Ok(())
   }
 
-  fn handle_basic_frame(&self, frame: AmqMethodFrame) -> Result<()> {
+  fn handle_basic_frame(&self, frame: MethodFrame) -> Result<()> {
     use crate::protocol::basic::{methods::{ConsumeOk,Deliver}, constants::{METHOD_CONSUME_OK, METHOD_DELIVER}};
 
     match frame.method_id {
@@ -294,7 +294,7 @@ impl AmqChannel {
     Ok(())
   }
 
-  fn wait_for_response(&self) -> Result<AmqMethodFrame> {
+  fn wait_for_response(&self) -> Result<MethodFrame> {
     Ok(self.waiter_channel.lock().unwrap().recv()?)
   }
 }

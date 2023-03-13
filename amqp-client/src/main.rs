@@ -61,3 +61,30 @@ fn main() -> Result<()> {
   info!("Channel closed ...");
   Ok(())
 }
+
+async fn main_proto() -> Result<()> {
+  env_logger::init();
+  // let connection_uri = "amqp://user:password@localhost:5672/my_vhost";
+  let connection = ConnectionFactory::create("amqp://user:password@localhost:5672/my_vhost").await?;
+  let channel = connection.declare_channel().await?;
+  let exchange = channel.declare_exchange("exch1", ExchangeType::Direct, true, false, false, None).await?;
+  let queue = channel.declare_queue("", false, false, false, false, None).await?;
+  channel.bind(queue, exchange, "some.path").await?;
+
+  let queue_stream = channel.start_consumer(queue).await?;
+
+  thread::spawn(move || {
+    for frame in queue_stream {
+      let body = frame.content_body.unwrap();
+      println!("Received body frame: {:?}", String::from_utf8(body));
+    }
+  });
+
+  let mut s = String::new();
+  println!("Waiting ...");
+  std::io::stdin().read_line(&mut s).unwrap();
+
+  channel.close().unwrap();
+  info!("Channel closed ...");
+  Ok(())
+}

@@ -13,3 +13,5 @@ env_logger = "0.9.3"
 amqp_macros  = { path = "../amqp-macros" }
 amqp_protocol  = { path = "../amqp-protocol" }
 url = "2.3.1"
+tokio = { version="1.26.0", features=["full"]}
+bytes = "1.4.0"

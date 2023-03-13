@@ -1,24 +1,69 @@
 use std::collections::HashMap;
+use std::fmt::format;
+use std::io::{BufRead, Cursor, Error};
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use anyhow::bail;
+use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, info};
+use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, BufWriter};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf, ReadHalf};
+use tokio::net::TcpStream;
 use url::Url;
+use amqp_protocol::dec::Decode;
 use amqp_protocol::types::Property;
 use crate::protocol::connection::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
-use crate::protocol::frame::{AmqFrame, AmqMethodFrame};
+use crate::protocol::frame::{BodyFrame, Frame, HeaderFrame, MethodFrame};
 use crate::protocol::stream::{AmqpStream};
-use crate::{Result, Channel};
+use crate::{Result, Channel, Connection};
+use crate::protocol::connection;
 use crate::utils::IdAllocator;
 
 pub mod constants;
 pub mod methods;
 
+pub struct ConnectionFactory;
+
+impl ConnectionFactory {
+  pub async fn create(uri: &str) -> Result<AmqConnection> {
+    let options = Self::parse_uri(uri)?;
+    let stream = TcpStream::connect(format!("{}:{}", options.host, options.port)).await?;
+
+    Ok(AmqConnection::new(stream, options))
+  }
+
+  fn parse_uri(uri: &str) -> Result<ConnectionOpts> {
+    let url = Url::parse(uri).unwrap();
+    let host = if url.has_host() {
+      url.host().unwrap().to_string()
+    } else {
+      String::from("localhost")
+    };
+    let port = url.port().unwrap_or_else(|| 5672);
+    let (login, password) = if url.has_authority() {
+      (url.username().to_string(), url.password().unwrap().to_string())
+    } else {
+      bail!("Provide username and password in the connection url");
+    };
+
+    Ok(ConnectionOpts {
+      host,
+      port,
+      login,
+      password,
+      vhost: url.path()[1..].into(),
+    })
+  }
+}
+
 pub struct AmqConnection {
-  pub options: ConnectionOpts,
-  amqp_stream: Arc<AmqpStream>,
-  channels: Arc<Mutex<HashMap<i16,Arc<Channel>>>>,
-  id_allocator: IdAllocator,
-  pending: Arc<Mutex<HashMap<i16, AmqMethodFrame>>>
+  reader: Arc<FrameReader>,
+  writer: Arc<FrameWriter>,
+  options: ConnectionOpts,
+  // channels: Arc<Mutex<HashMap<i16,Arc<Channel>>>>,
+  // id_allocator: IdAllocator,
+  // pending: Arc<Mutex<HashMap<i16, AmqMethodFrame>>>
 }
 
 #[derive(Clone)]
@@ -31,59 +76,44 @@ pub struct ConnectionOpts {
 }
 
 impl AmqConnection {
-  pub fn from_uri(uri: &str) -> Result<Self> {
-    let url = Url::parse(uri).unwrap();
-    let host = if url.has_host() {
-      url.host().unwrap().to_string()
-    } else {
-      String::from("localhost")
-    };
-    let port = url.port().unwrap_or_else(|| 5672);
-    let (username, password) = if url.has_authority() {
-      (
-        url.username().to_string(),
-        url.password().unwrap().to_string()
-      )
-    } else {
-      bail!("Provide username and password in the connection url");
-    };
+  pub fn new(stream: TcpStream, options: ConnectionOpts) -> Self {
+    let stream_parts = stream.into_split();
+    let reader = Arc::new(FrameReader::new(BufReader::new(stream_parts.0)));
+    let writer = Arc::new(FrameWriter::new(BufWriter::new(stream_parts.1)));
 
-    Ok(
-      AmqConnection::new(
-        host,
-        port,
-        username,
-        password,
-        url.path()[1..].to_string(),
-      )
-    )
-  }
-
-  pub fn new(host: String, port: u16, login: String, password: String, vhost: String) -> Self {
-    let connection_url = format!("{}:{}", host.clone(), port);
-    let options = ConnectionOpts { host, port, login, password, vhost };
-
-    AmqConnection {
-      amqp_stream: Arc::new(AmqpStream::new(connection_url)),
-      channels: Arc::new(Mutex::new(HashMap::new())),
-      id_allocator: IdAllocator::new(),
+    Self {
+      reader,
+      writer,
       options,
-      pending: Arc::new(Mutex::new(HashMap::new()))
     }
   }
 
-  pub fn connect(&mut self) -> Result<()> {
+  pub async fn connect(&mut self) -> Result<()> {
     use crate::protocol::connection::constants::PROTOCOL_HEADER;
     use crate::protocol::connection::methods as conn_methods;
 
-    info!("Connecting to the server");
-    let mut reader = self.amqp_stream.reader.lock().unwrap();
-    let mut writer = self.amqp_stream.writer.lock().unwrap();
+    // let stream_parts = stream.into_split();
+    // let reader = Arc::new(FrameReader::new(BufReader::new(stream_parts.0)));
+    // let writer = Arc::new(FrameWriter::new(BufWriter::new(stream_parts.1)));
+
+    // let conn =  AmqConnection {
+    //   reader,
+    //   writer,
+    //   buff: BytesMut::with_capacity( 4096),
+      // channels: Arc::new(Mutex::new(HashMap::new())),
+      // id_allocator: IdAllocator::new(),
+      // options,
+      // pending: Arc::new(Mutex::new(HashMap::new()))
+    // };
+
+    // info!("Connecting to the server");
+    // let mut reader = conn.reader;
+    // let mut writer = conn.writer;
 
     info!("Sending ProtocolHeader");
-    writer.send_raw(&PROTOCOL_HEADER)?;
+    self.writer.write_all(&PROTOCOL_HEADER).await?;
 
-    let frame = reader.next_method_frame()?;
+    let frame = self.reader.inner.next_method_frame()?;
     let _start_method: conn_methods::Start = frame.body.try_into()?;
 
     let client_properties = HashMap::from([
@@ -130,7 +160,73 @@ impl AmqConnection {
     Ok(())
   }
 
-  pub fn create_channel(&mut self) -> Result<Arc<Channel>> {
+  pub fn next_frame(&mut self) -> Result<Option<Frame>> {
+    if self.buff.len() < 7 {
+      return Ok(None);
+    }
+
+    let mut buf = Cursor::new(&self.buff[..7]);
+    // let mut frame_header = self.read_cursor(7)?;
+    let frame_type = buf.read_byte()?;
+    let chan = buf.read_short()?;
+    let size = buf.read_int()?;
+
+    // header + body_size + frame_end_byte
+    let frame_size = 7 +size + 1;
+    if self.buff.len() < frame_size as usize {
+      return Ok(None)
+    }
+
+    self.buff.advance(7);
+    let body = self.buff.split_to(size as usize).to_vec();
+    // read frame end byte
+    assert_eq!(206, self.buff[0]);
+    self.buff.advance(1);
+
+    info!("next_frame frame_type {}, chan {}, size {}, body {:?}", frame_type, chan, size, body);
+
+    let frame = match frame_type {
+      1 => {
+        let mut meta = Cursor::new(body[..4].to_vec());
+        let class_id = meta.read_short()?;
+        let method_id = meta.read_short()?;
+
+        Frame::Method(MethodFrame { chan, class_id, method_id, body, content_header: None, content_body: None })
+      },
+      2 => {
+        let mut meta = Cursor::new(body[..14].to_vec());
+        let class_id = meta.read_short()?;
+        let _weight = meta.read_short()?;
+        let body_len = meta.read_long()?;
+        let prop_flags = meta.read_short()?;
+
+        Frame::Header(HeaderFrame {
+          chan,
+          class_id,
+          body_len,
+          prop_flags,
+          prop_list: body[14..].to_vec()
+        })
+      }
+      3 => {
+        info!("Body frame {:?}, len {}", &body, body.len());
+        Frame::Body(BodyFrame {
+          chan,
+          body
+        })
+      }
+      4 => {
+        Frame::Heartbeat
+      },
+      // todo: fix this
+      _ => {
+        panic!("Unknown frame type")
+      }
+    };
+
+    Ok(Some(frame))
+  }
+/*  pub fn create_channel(&mut self) -> Result<Arc<Channel>> {
     let id = self.id_allocator.allocate();
     info!("Creating channel with id: {}", id);
     let chan = Channel::new(id, self.amqp_stream.clone());
@@ -194,5 +290,104 @@ impl AmqConnection {
         }
       }
     });
+  }*/
+}
+
+const FRAME_HEADER_SIZE: usize = 7;
+const FRAME_END_SIZE: usize = 1;
+
+pub struct FrameReader {
+  inner: BufReader<OwnedReadHalf>,
+  buf: BytesMut,
+}
+
+impl FrameReader {
+  pub fn new(inner: BufReader<OwnedReadHalf>) -> Self {
+    Self {
+      inner,
+      // todo: review default capacity
+      buf: BytesMut::with_capacity(128 * 1024)
+    }
+  }
+
+  pub fn next_frame(&mut self) -> Result<Option<Frame>> {
+    if self.buf.len() < FRAME_HEADER_SIZE {
+      return Ok(None);
+    }
+
+    let mut buf = Cursor::new(&self.buf[..7]);
+    let frame_type = buf.read_byte()?;
+    let chan = buf.read_short()?;
+    let size = buf.read_int()?;
+
+    // header + body_size + frame_end_byte
+    let frame_size = FRAME_HEADER_SIZE + size as usize + FRAME_END_SIZE;
+    if self.buf.len() < frame_size as usize {
+      return Ok(None)
+    }
+
+    self.buf.advance(7);
+    let body = self.buf.split_to(size as usize).to_vec();
+    // read frame end byte
+    assert_eq!(206, self.buf[0]);
+    self.buf.advance(1);
+
+    info!("next_frame frame_type {}, chan {}, size {}, body {:?}", frame_type, chan, size, body);
+
+    let frame = match frame_type {
+      1 => {
+        let mut meta = Cursor::new(body[..4].to_vec());
+        let class_id = meta.read_short()?;
+        let method_id = meta.read_short()?;
+
+        Frame::Method(MethodFrame { chan, class_id, method_id, body, content_header: None, content_body: None })
+      },
+      2 => {
+        let mut meta = Cursor::new(body[..14].to_vec());
+        let class_id = meta.read_short()?;
+        let _weight = meta.read_short()?;
+        let body_len = meta.read_long()?;
+        let prop_flags = meta.read_short()?;
+
+        Frame::Header(HeaderFrame {
+          chan,
+          class_id,
+          body_len,
+          prop_flags,
+          prop_list: body[14..].to_vec()
+        })
+      }
+      3 => {
+        info!("Body frame {:?}, len {}", &body, body.len());
+        Frame::Body(BodyFrame {
+          chan,
+          body
+        })
+      }
+      4 => {
+        Frame::Heartbeat
+      },
+      // todo: fix this
+      _ => {
+        panic!("Unknown frame type")
+      }
+    };
+
+    Ok(Some(frame))
+  }
+}
+
+pub struct FrameWriter {
+  inner: BufWriter<OwnedWriteHalf>
+}
+
+impl FrameWriter {
+  pub fn new(inner: BufWriter<OwnedWriteHalf>) -> Self {
+    Self { inner }
+  }
+
+  pub async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<()> {
+    self.inner.write_all(buf).await?;
+    Ok(())
   }
 }
