@@ -27,13 +27,25 @@ pub struct ConnectionFactory;
 
 impl ConnectionFactory {
   pub async fn create(uri: &str) -> Result<AmqConnection> {
-    let options = Self::parse_uri(uri)?;
+    let options: ConnectionOpts = uri.into();
     let stream = TcpStream::connect(format!("{}:{}", options.host, options.port)).await?;
-
-    Ok(AmqConnection::new(stream, options))
+    let mut con = AmqConnection::new(stream, options);
+    con.connect().await?;
+    Ok(con)
   }
+}
 
-  fn parse_uri(uri: &str) -> Result<ConnectionOpts> {
+#[derive(Clone)]
+pub struct ConnectionOpts {
+  pub host: String,
+  pub port: u16,
+  pub login: String,
+  pub password: String,
+  pub vhost: String,
+}
+
+impl From<&str> for ConnectionOpts {
+  fn from(uri: &str) -> Self {
     let url = Url::parse(uri).unwrap();
     let host = if url.has_host() {
       url.host().unwrap().to_string()
@@ -44,18 +56,19 @@ impl ConnectionFactory {
     let (login, password) = if url.has_authority() {
       (url.username().to_string(), url.password().unwrap().to_string())
     } else {
-      bail!("Provide username and password in the connection url");
+      panic!("Provide username and password in the connection url");
     };
 
-    Ok(ConnectionOpts {
+    Self {
       host,
       port,
       login,
       password,
       vhost: url.path()[1..].into(),
-    })
+    }
   }
 }
+
 
 pub struct AmqConnection {
   reader: Arc<FrameReader>,
@@ -64,15 +77,6 @@ pub struct AmqConnection {
   // channels: Arc<Mutex<HashMap<i16,Arc<Channel>>>>,
   // id_allocator: IdAllocator,
   // pending: Arc<Mutex<HashMap<i16, AmqMethodFrame>>>
-}
-
-#[derive(Clone)]
-pub struct ConnectionOpts {
-  pub host: String,
-  pub port: u16,
-  pub login: String,
-  pub password: String,
-  pub vhost: String,
 }
 
 impl AmqConnection {
@@ -113,7 +117,7 @@ impl AmqConnection {
     info!("Sending ProtocolHeader");
     self.writer.write_all(&PROTOCOL_HEADER).await?;
 
-    let frame = self.reader.inner.next_method_frame()?;
+    let frame = self.reader.next_frame()?;
     let _start_method: conn_methods::Start = frame.body.try_into()?;
 
     let client_properties = HashMap::from([
@@ -374,6 +378,24 @@ impl FrameReader {
     };
 
     Ok(Some(frame))
+  }
+
+  pub fn next_method_frame(&mut self) -> Result<MethodFrame> {
+    let mut frame = self.next_frame()?;
+
+    loop {
+      match frame {
+        Frame::Method(method)  => {
+          return Ok(method);
+        },
+        // AmqFrame::Header(header) => {
+        //
+        // }
+        _ => {
+          frame = self.next_frame()?;
+        }
+      }
+    }
   }
 }
 
