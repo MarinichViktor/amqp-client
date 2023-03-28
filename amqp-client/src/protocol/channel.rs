@@ -17,11 +17,9 @@ pub type  ChannelSender = mpsc::Sender<(i32, Vec<u8>)>;
 
 pub struct AmqChannel {
   pub id: i16,
-  writer: FrameSender,
-  // waiter_channel: Mutex<Receiver<MethodFrame>>,
-  // waiter_sender: Mutex<Sender<MethodFrame>>,
-  pub inner_tx: mpsc::Sender<MethodFrame>,
-  pub inner_rx: Option<mpsc::Receiver<MethodFrame>>,
+  pub global_frame_transmitter: mpsc::Sender<MethodFrame>,
+  writer: Mutex<FrameSender>,
+  global_frame_receiver: Option<mpsc::Receiver<MethodFrame>>,
   active: bool,
   // consumers: Arc<Mutex<HashMap<String, Sender<MethodFrame>>>>,
   sync_waiter_queue: Arc<Mutex<Vec<oneshot::Sender<MethodFrame>>>>
@@ -33,20 +31,17 @@ impl AmqChannel {
 
     Self {
       id,
-      writer,
-      inner_tx,
-      inner_rx: Some(inner_rx),
+      writer: Mutex::new(writer),
+      global_frame_transmitter: inner_tx,
+      global_frame_receiver: Some(inner_rx),
       active: true,
       sync_waiter_queue: Arc::new(Mutex::new(vec![]))
-      // waiter_channel: Mutex::new(receiver),
-      // waiter_sender: Mutex::new(sender),
-      // consumers: Arc::new(Mutex::new(HashMap::new())),
     }
   }
 
   pub async fn open(&mut self) -> Result<OpenOk> {
     let sync_waiter_queue = self.sync_waiter_queue.clone();
-    let mut inner_rx = self.inner_rx.take().unwrap();
+    let mut inner_rx = self.global_frame_receiver.take().unwrap();
 
     info!("[Channel] start incoming listener");
     tokio::spawn(async move {
@@ -67,7 +62,7 @@ impl AmqChannel {
   }
 
   pub async fn declare_exchange(
-    &mut self,
+    &self,
     name: String,
     ty: ExchangeType,
     durable: bool,
@@ -88,7 +83,7 @@ impl AmqChannel {
     }).await
   }
 
-  pub async fn declare_exchange_with_builder<F>(&mut self, configure: F) -> Result<()>
+  pub async fn declare_exchange_with_builder<F>(&self, configure: F) -> Result<()>
     where F: FnOnce(&mut ExchangeDeclareOptsBuilder) -> ()
   {
     debug!("Declare exchange");
@@ -103,7 +98,7 @@ impl AmqChannel {
   }
 
   pub async fn declare_queue(
-    &mut self,
+    &self,
     name: &str,
     durable: bool,
     passive: bool,
@@ -122,7 +117,7 @@ impl AmqChannel {
     }).await
   }
 
-  pub async fn declare_queue_with_builder<F>(&mut self, configure: F) -> Result<String>
+  pub async fn declare_queue_with_builder<F>(&self, configure: F) -> Result<String>
     where F: FnOnce(&mut QueueDeclareOptsBuilder) -> ()
   {
     use crate::protocol::queue::methods::{Declare, DeclareOk};
@@ -138,7 +133,7 @@ impl AmqChannel {
     Ok(payload.name)
   }
 
-  pub async fn bind(&mut self, queue_name: String, exchange_name: String, routing_key: String) -> Result<()> {
+  pub async fn bind(&self, queue_name: String, exchange_name: String, routing_key: String) -> Result<()> {
     use crate::protocol::queue::methods::Bind;
 
     debug!("Bind queue: {} to: exchange {} with key: {}", queue_name.clone(), exchange_name.clone(), routing_key.clone());
@@ -155,7 +150,7 @@ impl AmqChannel {
     Ok(())
   }
 
-  pub async fn unbind(&mut self, queue: &str, exchange: &str, routing_key: &str) -> Result<()> {
+  pub async fn unbind(&self, queue: &str, exchange: &str, routing_key: &str) -> Result<()> {
     use crate::protocol::queue::methods::Unbind;
 
     let payload = Unbind {
@@ -171,7 +166,7 @@ impl AmqChannel {
     Ok(())
   }
 
-  pub async fn flow(&mut self, active: bool) -> Result<()> {
+  pub async fn flow(&self, active: bool) -> Result<()> {
     use crate::protocol::channel::methods::Flow;
 
     debug!("Invoking channel {} Flow", self.id);
@@ -180,12 +175,12 @@ impl AmqChannel {
     }
 
     self.send_sync(Flow { active: active as u8 }).await?;
-    self.active = active;
+    // self.active = active;
 
     Ok(())
   }
 
-  pub async fn close(&mut self) -> Result<()> {
+  pub async fn close(&self) -> Result<()> {
     use crate::protocol::channel::methods::Close;
 
     debug!("Closing channel {}", self.id);
@@ -199,14 +194,15 @@ impl AmqChannel {
     Ok(())
   }
 
-  async fn send_sync<T>(&mut self, request: T) -> Result<MethodFrame>
+  async fn send_sync<T>(&self, request: T) -> Result<MethodFrame>
     where T: TryInto<Vec<u8>, Error = crate::Error>
   {
     let (tx, rx) = oneshot::channel::<MethodFrame>();
     let sync_waiter_queue = self.sync_waiter_queue.clone();
     sync_waiter_queue.lock().unwrap().push(tx);
 
-    self.writer.send(self.id, request).await?;
+    let mut writer = self.writer.lock().unwrap();
+    writer.send(self.id, request).await?;
 
     Ok(rx.await?)
   }

@@ -211,7 +211,7 @@ impl Connection {
     let mut channel = Channel::new(id, self.sender.clone());
     {
       let mut channels = self.channels.lock().await;
-      channels.insert(channel.id, channel.inner_tx.clone());
+      channels.insert(channel.id, channel.global_frame_transmitter.clone());
     }
     channel.open().await?;
 
