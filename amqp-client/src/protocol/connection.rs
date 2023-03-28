@@ -22,11 +22,11 @@ pub mod methods;
 pub mod factory;
 pub mod options;
 
-
 #[derive(Debug)]
 pub struct MethodRequest {
-  channel: i16,
-  payload: Vec<u8>
+  pub channel: i16,
+  pub payload: Vec<u8>,
+  pub body: Option<Vec<u8>>
 }
 
 #[derive(Clone)]
@@ -39,8 +39,14 @@ impl FrameSender {
   {
     self.0.send(MethodRequest {
       channel,
-      payload: request.try_into()?
+      payload: request.try_into()?,
+      body: None
     }).await?;
+    Ok(())
+  }
+
+  pub async fn send_raw(&mut self, payload: MethodRequest) -> Result<()> {
+    self.0.send(payload).await?;
     Ok(())
   }
 }
@@ -103,7 +109,7 @@ impl Connection {
     };
     info!("Sending [StartOk]");
     // todo: add const for default channel or separate struct
-    writer.write_method_frame(0, start_ok_method.try_into()?).await?;
+    writer.write_method_frame(0, start_ok_method.try_into()?, None).await?;
 
     let frame = reader.next_method_frame().await?;
     let tune_method: conn_methods::Tune = frame.body.try_into()?;
@@ -115,7 +121,7 @@ impl Connection {
       heartbeat: tune_method.heartbeat,
     };
     info!("Sending [TuneOk]");
-    writer.write_method_frame(0, tune_ok_method.try_into()?).await?;
+    writer.write_method_frame(0, tune_ok_method.try_into()?, None).await?;
 
     let open_method = conn_methods::Open {
       vhost: self.options.vhost.clone(),
@@ -123,7 +129,7 @@ impl Connection {
     };
 
     info!("Sending [OpenMethod]");
-    writer.write_method_frame(0, open_method.try_into()?).await?;
+    writer.write_method_frame(0, open_method.try_into()?, None).await?;
 
     let frame = reader.next_method_frame().await?;
     let _open_ok_method: conn_methods::OpenOk = frame.body.try_into()?;
@@ -196,7 +202,7 @@ impl Connection {
       handle.spawn(async move {
         while let Some(request) = receiver.0.recv().await {
           let mut writer = writer.lock().await;
-          writer.write_method_frame(request.channel, request.payload).await.unwrap();
+          writer.write_method_frame(request.channel, request.payload, request.body).await.unwrap();
         }
 
         debug!("[Connection] methods listener exited")

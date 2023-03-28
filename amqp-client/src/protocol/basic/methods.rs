@@ -38,3 +38,17 @@ pub struct Deliver {
   #[short_str]
   pub routing_key: String,
 }
+
+#[derive(Debug, Default)]
+#[amqp_method(c_id=60, m_id=40)]
+pub struct Publish {
+  #[short]
+  pub reserved1: i16,
+  #[short_str]
+  pub exchange: String,
+  #[short_str]
+  pub routing_key: String,
+  // todo: add params
+  #[byte]
+  pub flags: u8,
+}

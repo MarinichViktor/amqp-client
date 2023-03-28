@@ -2,10 +2,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use crate::{ExchangeType, Result};
 use log::{debug, info};
-use crate::protocol::connection::{FrameSender};
-use crate::protocol::frame::{MethodFrame};
+use tokio::io::AsyncWriteExt;
+use crate::protocol::connection::{FrameSender, MethodRequest};
+use crate::protocol::frame::{HeaderFrame, MethodFrame};
 use tokio::sync::{oneshot, mpsc};
+use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
+use amqp_protocol::enc::Encode;
 use amqp_protocol::types::Table;
+use crate::protocol::basic::methods::{Deliver, Publish};
 use crate::protocol::channel::methods::{Open, OpenOk};
 use crate::protocol::exchange::ExchangeDeclareOptsBuilder;
 use crate::protocol::queue::QueueDeclareOptsBuilder;
@@ -21,7 +25,7 @@ pub struct AmqChannel {
   writer: Mutex<FrameSender>,
   global_frame_receiver: Option<mpsc::Receiver<MethodFrame>>,
   active: bool,
-  // consumers: Arc<Mutex<HashMap<String, Sender<MethodFrame>>>>,
+  consumers: Arc<Mutex<HashMap<String, mpsc::UnboundedSender<MethodFrame>>>>,
   sync_waiter_queue: Arc<Mutex<Vec<oneshot::Sender<MethodFrame>>>>
 }
 
@@ -35,6 +39,7 @@ impl AmqChannel {
       global_frame_transmitter: inner_tx,
       global_frame_receiver: Some(inner_rx),
       active: true,
+      consumers: Arc::new(Mutex::new(Default::default())),
       sync_waiter_queue: Arc::new(Mutex::new(vec![]))
     }
   }
@@ -42,13 +47,26 @@ impl AmqChannel {
   pub async fn open(&mut self) -> Result<OpenOk> {
     let sync_waiter_queue = self.sync_waiter_queue.clone();
     let mut inner_rx = self.global_frame_receiver.take().unwrap();
+    let consumers = self.consumers.clone();
 
     info!("[Channel] start incoming listener");
     tokio::spawn(async move {
+      use crate::protocol::{basic};
+
       loop {
         if let Some(frame) = inner_rx.recv().await {
-          let mut sync_waiter_queue = sync_waiter_queue.lock().unwrap();
-          sync_waiter_queue.pop().unwrap().send(frame).unwrap();
+          match (frame.class_id, frame.method_id) {
+            (60, basic::constants::METHOD_DELIVER) => {
+              let payload: Deliver = frame.body.clone().try_into().unwrap();
+              let consumers = consumers.lock().unwrap();
+              let handler = consumers.get(&payload.consumer_tag).unwrap();
+              handler.send(frame).unwrap();
+            },
+            _ => {
+              let mut sync_waiter_queue = sync_waiter_queue.lock().unwrap();
+              sync_waiter_queue.pop().unwrap().send(frame).unwrap();
+            }
+          }
         } else {
           // todo: review action
           println!("Channel receiver exited");
@@ -180,6 +198,58 @@ impl AmqChannel {
     Ok(())
   }
 
+  pub async fn consume(&self, queue: String) -> Result<UnboundedReceiver<MethodFrame>> {
+    use crate::protocol::basic::methods::{Consume,ConsumeOk};
+
+    debug!("Consuming queue: {}", queue.clone());
+    let payload = Consume {
+      reserved1: 0,
+      queue,
+      tag: String::from(""),
+      flags: 0,
+      table: HashMap::new()
+    };
+    let response = self.send_sync(payload).await?;
+
+    let payload: ConsumeOk = response.body.try_into()?;
+    debug!("Consume ok with tag: {}", payload.tag.clone());
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    self.consumers.lock().unwrap().insert(payload.tag, tx);
+
+    Ok(rx)
+  }
+
+
+  pub async fn publish(&self, exchange: String, routing_key: String, payload: Vec<u8>) -> Result<()> {
+    use crate::protocol::basic::methods::{Publish};
+    let (tx, rx) = oneshot::channel::<MethodFrame>();
+    {
+      let sync_waiter_queue = self.sync_waiter_queue.clone();
+      sync_waiter_queue.lock().unwrap().push(tx);
+    }
+
+    debug!("Publishing message");
+    let method = Publish {
+      reserved1: 0,
+      exchange,
+      routing_key,
+      flags: 0,
+    };
+
+    let mut writer = self.writer.lock().unwrap();
+    writer.send_raw(MethodRequest {
+      channel: self.id,
+      payload: method.try_into()?,
+      body: Some(payload)
+    }).await?;
+
+    println!("Waiting for the response");
+    rx.await?;
+    println!("Received response");
+
+    Ok(())
+  }
+
   pub async fn close(&self) -> Result<()> {
     use crate::protocol::channel::methods::Close;
 
@@ -206,31 +276,15 @@ impl AmqChannel {
 
     Ok(rx.await?)
   }
+  async fn send_async<T>(&self, request: T) -> Result<()>
+    where T: TryInto<Vec<u8>, Error = crate::Error>
+  {
+    let mut writer = self.writer.lock().unwrap();
+    writer.send(self.id, request).await?;
 
-  //
+    Ok(())
+  }
 
-
-  // pub fn consume(&self, queue: String) -> Result<Receiver<MethodFrame>> {
-  //   use crate::protocol::basic::methods::{Consume,ConsumeOk};
-  //
-  //   debug!("Consuming queue: {}", queue.clone());
-  //   let mut stream_writer = self.amqp_stream.writer.lock().unwrap();
-  //   stream_writer.invoke(self.id, Consume {
-  //     reserved1: 0,
-  //     queue,
-  //     tag: String::from(""),
-  //     flags: 0,
-  //     table: HashMap::new()
-  //   })?;
-  //   let resp_frame = self.wait_for_response()?;
-  //   let payload: ConsumeOk = resp_frame.body.try_into()?;
-  //   debug!("Consume ok with tag: {}", payload.tag.clone());
-  //   let (tx, rx) = channel();
-  //   self.consumers.lock().unwrap().insert(payload.tag, tx);
-  //
-  //   Ok(rx)
-  // }
-  //
   // todo: refactor result to avoid response prefix
   pub fn handle_frame(&self, frame: MethodFrame) -> Result<()> {
     match frame.class_id {
