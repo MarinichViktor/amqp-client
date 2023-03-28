@@ -12,8 +12,7 @@ pub struct MethodFrame {
   pub class_id: i16,
   pub method_id: i16,
   pub body: Vec<u8>,
-  pub content_header: Option<HeaderFrame>,
-  pub content_body: Option<Vec<u8>>,
+  pub content: Option<(HeaderFrame, Vec<u8>)>
 }
 
 impl MethodFrame {

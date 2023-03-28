@@ -52,10 +52,9 @@ pub struct Connection {
   id_allocator: IdAllocator,
   channels: Arc<Mutex<HashMap<i16, mpsc::Sender<MethodFrame>>>>,
   sender: FrameSender,
-  receiver: Option<FrameReceiver>
-  // pending: Arc<Mutex<HashMap<i16, AmqMethodFrame>>>
+  receiver: Option<FrameReceiver>,
+  incomplete_frames: Arc<Mutex<HashMap<i16, MethodFrame>>>
 }
-
 
 impl Connection {
   pub fn new(stream: TcpStream, options: ConnectionOpts) -> Self {
@@ -69,7 +68,8 @@ impl Connection {
       writer,
       options,
       id_allocator: IdAllocator::new(),
-      channels: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+      channels: Arc::new(Mutex::new(HashMap::new())),
+      incomplete_frames: Arc::new(Mutex::new(HashMap::new())),
       sender: FrameSender(sender),
       receiver: Some(FrameReceiver(receiver))
     }
@@ -139,62 +139,50 @@ impl Connection {
   pub fn start_listener(&mut self) {
     let mut reader = self.reader.take().unwrap();
     let channels = self.channels.clone();
-
-    // let reader = self.amqp_stream.reader.clone();
-    // let pending = self.pending.clone();
-    let handle = Handle::current();
+    let inc_frames = self.incomplete_frames.clone();
     let mut receiver = self.receiver.take().unwrap();
     let writer = self.writer.clone();
+    let handle = Handle::current();
 
     std::thread::spawn(move || {
-      let future1 = handle.spawn(async move {
-        println!("Waiting for a frame");
+      handle.spawn(async move {
         while let Ok(frame) = reader.next_frame().await {
-          println!("Received frame {:?}", frame);
           match frame {
             Frame::Method(method_frame) => {
               debug!("Received method frame: channel {}, class_id {}, method_id: {}", method_frame.chan, method_frame.class_id, method_frame.method_id);
-              if method_frame.has_content() {
-                // todo: to be deifend
-                println!("Method with content received");
-                panic!("Method with content received");
-                // pending.lock().unwrap().insert(method_frame.chan, method_frame);
-              } else {
-                println!("Wait for lock");
+              if !method_frame.has_content() {
                 let channels_map = channels.lock().await;
-                println!("Send frame to the channel");
                 channels_map[&method_frame.chan].send(method_frame).await.unwrap();
-                println!("Send frame to the channel 2");
+              } else {
+                inc_frames.lock().await.insert(method_frame.chan, method_frame);
               }
             },
             Frame::Header(header) => {
               let chan = header.chan;
               debug!("Received header frame: channel {}, class_id {}", header.chan, header.class_id);
-              // pending.lock().unwrap().get_mut(&chan).unwrap().content_header = Some(header);
+              let mut pending = inc_frames.lock().await;
+              pending.get_mut(&chan).unwrap().content = Some((header, vec![]))
             },
             Frame::Body(mut frame) => {
               debug!("Received body frame");
-              // let mut pending_frames = pending.lock().unwrap();
-              //
-              // let mut partial_frame = pending_frames.remove(&frame.chan).unwrap();
-              //
-              // let mut content_body = partial_frame.content_body.take().unwrap_or_else(|| vec![]);
-              // content_body.append(&mut frame.body);
-              //
-              // let curr_body_len = content_body.len();
-              // let expected_body_len = match &partial_frame.content_header {
-              //   Some(x) => x.body_len,
-              //   _ => panic!("failed to get content header")
-              // };
-              // partial_frame.content_body = Some(content_body);
-              //
-              // if curr_body_len as i64 == expected_body_len {
-              //   debug!("Received full frame body");
-              //   channels.lock().unwrap()[&frame.chan].handle_frame(partial_frame).unwrap();
-              // } else {
-              //   debug!("Received {} bytes, expected {}. Waiting on the next frames", curr_body_len, expected_body_len);
-              //   pending_frames.insert(frame.chan, partial_frame);
-              // }
+              let mut pending_frames = inc_frames.lock().await;
+              let mut last_frame = pending_frames.remove(&frame.chan).unwrap();
+
+              let mut frame_content = last_frame.content.take().unwrap();
+              frame_content.1.append(&mut frame.body);
+
+              let curr_len = frame_content.1.len();
+              let expected_len = frame_content.0.body_len;
+              last_frame.content = Some(frame_content);
+
+              if curr_len as i64 == expected_len {
+                debug!("Received full frame body");
+                let channels = channels.lock().await;
+                channels[&frame.chan].send(last_frame).await.unwrap();
+              } else {
+                debug!("Received {} bytes, expected {}. Waiting on the next frames", curr_len, expected_len);
+                pending_frames.insert(frame.chan, last_frame);
+              }
             }
             _ => {
               panic!("Unsupported frame type")
@@ -205,13 +193,13 @@ impl Connection {
         println!("Received something else");
       });
 
-      let future2 = handle.spawn(async move {
+      handle.spawn(async move {
         while let Some(request) = receiver.0.recv().await {
-          let mut w = writer.lock().await;
-          w.write_method_frame(request.channel, request.payload).await.unwrap();
-          println!("Received request");
+          let mut writer = writer.lock().await;
+          writer.write_method_frame(request.channel, request.payload).await.unwrap();
         }
-        println!("Method listener exited");
+
+        debug!("[Connection] methods listener exited")
       });
     });
   }
@@ -221,13 +209,11 @@ impl Connection {
 
     info!("[Connection] create_channel {}", id);
     let mut channel = Channel::new(id, self.sender.clone());
-    info!("Wait for lock ");
-    let mut channels = self.channels.lock().await;
-    channels.insert(channel.id, channel.inner_tx.clone());
-    drop(channels);
-    info!("Received lock");
+    {
+      let mut channels = self.channels.lock().await;
+      channels.insert(channel.id, channel.inner_tx.clone());
+    }
     channel.open().await?;
-    info!("Received lock");
 
     Ok(channel)
   }

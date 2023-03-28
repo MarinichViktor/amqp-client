@@ -87,7 +87,7 @@ impl FrameReader {
         let class_id = meta.read_short()?;
         let method_id = meta.read_short()?;
 
-        Frame::Method(MethodFrame { chan, class_id, method_id, body, content_header: None, content_body: None })
+        Frame::Method(MethodFrame { chan, class_id, method_id, body, content: None })
       },
       2 => {
         let mut meta = Cursor::new(body[..14].to_vec());
