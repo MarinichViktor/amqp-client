@@ -12,50 +12,34 @@ TODO: implement message publishing.
 
 ## Example:
 ```rust
-let connection_uri = "amqp://user:password@localhost:5672/my_vhost";
-let mut connection = Connection::from_uri(connection_uri)?;
-connection.connect()?;
+const EXCHANGE: &str = "my-exchange";
+const ROUTING_KEY: &str = "my.key";
 
-// Create channel, queue and exchange
-let channel = connection.create_channel()?;
-let exchange = String::from("exch1");
-channel.exchange_declare(
-  exchange.clone(),
-  ExchangeType::Direct,
-  true,
-  false,
-  false,
-  false,
-  None
-)?;
+#[tokio::main]
+async fn main() -> Result<()> {
+  let connection_uri = "amqp://user:password@localhost:5672/my_vhost";
 
-let queue = channel.queue_declare(
-  "",
-  false,
-  false,
-  false,
-  false,
-  None
-)?;
-//Binding queue to the exchange and start a consumer
+  // Create connection and channel
+  let mut connection = ConnectionFactory::create(connection_uri).await?;
+  let channel = connection.create_channel().await?;
 
-let routing_key = String::from("foo.bar");
-channel.bind(
-  queue.clone(),
-  exchange.clone(),
-  routing_key.clone()
-)?;
+  // Declare exchange, queue and bind them
+  channel.declare_exchange(EXCHANGE.into(), ExchangeType::Direct, true, false, false, false,None).await?;
+  let queue = channel.declare_queue("", false, false, false, false, None).await?;
+  channel.bind(queue.clone(), EXCHANGE.into(), ROUTING_KEY.into()).await?;
 
-let queue_recv = channel.consume(queue.clone())?;
-thread::spawn(move || {
-  for frame in queue_recv {
-    let body = frame.content_body.unwrap();
-    // Assuming that body is just a raw string
-    println!("Received body frame: {:?}", String::from_utf8(body));
-  }
-});
+  let mut consumer_rx = channel.consume(queue.clone()).await?;
+  tokio::spawn(async move {
+    while let Some(delivery) = consumer_rx.recv().await {
+      // We assume that message is a valid utf8 string
+      println!("Received a message: {:?}", String::from_utf8(delivery.body.unwrap()));
+    }
+  });
 
-// TBD
+  channel.publish(EXCHANGE.into(), ROUTING_KEY.into(), "Hello world!".as_bytes().to_vec()).await?;
+
+  Ok(())
+}
 ```
 ## To be done:
 - [x] Connection
