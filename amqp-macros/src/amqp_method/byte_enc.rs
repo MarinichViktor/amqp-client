@@ -18,8 +18,8 @@ pub fn imp_try_into_byte_vec(method: &MethodItem) -> proc_macro2::TokenStream {
 
         fn try_into(self) -> amqp_protocol::response::Result<Vec<u8>, Self::Error> {
           let mut data = vec![];
-          amqp_protocol::enc::Encode::write_short(&mut data, #struct_ident::class_id())?;
-          amqp_protocol::enc::Encode::write_short(&mut data, #struct_ident::method_id())?;
+          // amqp_protocol::enc::Encode::write_short(&mut data, #struct_ident::class_id())?;
+          // amqp_protocol::enc::Encode::write_short(&mut data, #struct_ident::method_id())?;
 
           #( #fields_to_byte );*
 

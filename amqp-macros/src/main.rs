@@ -19,6 +19,4 @@ fn main() {
 
   let m2: AmqpMethod = v.try_into().unwrap();
   println!("m2 {:?}", m2);
-
-  println!("Class id {}, Method id {}", AmqpMethod::class_id(), AmqpMethod::method_id());
 }

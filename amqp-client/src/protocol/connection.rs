@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc};
 
-use log::{debug, info};
+use log::{info};
 use tokio::io::{BufReader, BufWriter};
 use tokio::net::TcpStream;
 use tokio::runtime::Handle;
@@ -10,202 +10,127 @@ use tokio::sync::{mpsc, Mutex};
 use amqp_protocol::types::Property;
 
 use crate::{Channel, Result};
+use crate::protocol::amqp_connection::AmqpConnection;
 use crate::protocol::connection::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
-use crate::protocol::frame::{Frame, HeaderFrame, MethodFrame};
 use crate::protocol::reader::FrameReader;
 use crate::protocol::writer::FrameWriter;
 use crate::utils::IdAllocator;
 use crate::protocol::connection::options::ConnectionOpts;
+use crate::protocol::frame2::{Frame2, RawFrame};
 
 pub mod constants;
 pub mod methods;
 pub mod factory;
 pub mod options;
 
-#[derive(Debug)]
-pub struct MethodRequest {
-  pub channel: i16,
-  pub payload: Vec<u8>,
-  pub body: Option<Vec<u8>>
-}
-
-#[derive(Clone)]
-pub struct FrameSender(mpsc::Sender<MethodRequest>);
-pub struct FrameReceiver(mpsc::Receiver<MethodRequest>);
-
-impl FrameSender {
-  pub async fn send<T>(&mut self, channel: i16, request: T) -> Result<()>
-    where T: TryInto<Vec<u8>, Error = crate::Error>
-  {
-    self.0.send(MethodRequest {
-      channel,
-      payload: request.try_into()?,
-      body: None
-    }).await?;
-    Ok(())
-  }
-
-  pub async fn send_raw(&mut self, payload: MethodRequest) -> Result<()> {
-    self.0.send(payload).await?;
-    Ok(())
-  }
-}
+pub type FrameTransmitter = mpsc::Sender<RawFrame>;
 
 pub struct Connection {
-  reader: Option<FrameReader>,
-  writer: Arc<Mutex<FrameWriter>>,
+  internal: AmqpConnection,
   options: ConnectionOpts,
   id_allocator: IdAllocator,
-  channels: Arc<Mutex<HashMap<i16, mpsc::Sender<MethodFrame>>>>,
-  sender: FrameSender,
-  receiver: Option<FrameReceiver>,
-  incomplete_frames: Arc<Mutex<HashMap<i16, MethodFrame>>>
+  channels: Arc<Mutex<HashMap<i16, mpsc::Sender<RawFrame>>>>,
+  frame_tx: mpsc::Sender<RawFrame>,
+  frame_rx: Option<mpsc::Receiver<RawFrame>>,
 }
 
 impl Connection {
   pub fn new(stream: TcpStream, options: ConnectionOpts) -> Self {
     let stream_parts = stream.into_split();
-    let reader = Some(FrameReader::new(BufReader::new(stream_parts.0)));
-    let writer = Arc::new(Mutex::new(FrameWriter::new(BufWriter::new(stream_parts.1))));
+    let reader = FrameReader::new(BufReader::new(stream_parts.0));
+    let writer = FrameWriter::new(BufWriter::new(stream_parts.1));
     let (sender, receiver) = mpsc::channel(128);
 
     Self {
-      reader,
-      writer,
+      internal: AmqpConnection::new(reader, writer),
       options,
       id_allocator: IdAllocator::new(),
       channels: Arc::new(Mutex::new(HashMap::new())),
-      incomplete_frames: Arc::new(Mutex::new(HashMap::new())),
-      sender: FrameSender(sender),
-      receiver: Some(FrameReceiver(receiver))
+      frame_tx: sender,
+      frame_rx: Some(receiver)
     }
   }
 
   pub async fn connect(&mut self) -> Result<()> {
+    self.handshake().await?;
+    self.start_listener();
+    Ok(())
+  }
+
+  async fn handshake(&mut self) -> Result<()> {
     use crate::protocol::connection::constants::PROTOCOL_HEADER;
     use crate::protocol::connection::methods as conn_methods;
 
-    info!("Connecting to the server");
-    let mut writer = self.writer.lock().await;
-    let reader = self.reader.as_mut().unwrap();
+    info!("Handshake started");
+    let mut writer = self.internal.writer.lock().await;
+    let reader = self.internal.reader.as_mut().unwrap();
 
     info!("Sending [ProtocolHeader]");
     writer.write_all(&PROTOCOL_HEADER).await?;
+    let _start_method: Frame2<conn_methods::Start> = reader.next_frame().await?.into();
 
-    let frame = reader.next_method_frame().await?;
-    let _start_method: conn_methods::Start = frame.body.try_into()?;
-
+    info!("Sending [StartOk]");
     let client_properties = HashMap::from([
       ("product".to_string(), Property::LongStr(PRODUCT.to_string())),
       ("platform".to_string(), Property::LongStr(PLATFORM.to_string())),
       ("copyright".to_string(), Property::LongStr(COPYRIGHT.to_string())),
       ("information".to_string(), Property::LongStr(INFORMATION.to_string()))
     ]);
-    let start_ok_method = conn_methods::StartOk {
+    // todo: add const for default channel or separate struct
+    let start_ok = Frame2::new(0, conn_methods::StartOk {
       properties: client_properties,
       mechanism: DEFAULT_AUTH_MECHANISM.to_string(),
       response: format!("\x00{}\x00{}", self.options.login.as_str(), self.options.password),
       locale: DEFAULT_LOCALE.to_string(),
-    };
-    info!("Sending [StartOk]");
-    // todo: add const for default channel or separate struct
-    writer.write_method_frame(0, start_ok_method.try_into()?, None).await?;
+    });
+    writer.write2(start_ok).await?;
 
-    let frame = reader.next_method_frame().await?;
-    let tune_method: conn_methods::Tune = frame.body.try_into()?;
+    let tune_method: Frame2<conn_methods::Tune> = reader.next_frame().await?.into();
 
     // todo: use values from conn options
     let tune_ok_method = conn_methods::TuneOk {
-      chan_max: tune_method.chan_max,
-      frame_max: tune_method.frame_max,
-      heartbeat: tune_method.heartbeat,
+      chan_max: tune_method.args.chan_max,
+      frame_max: tune_method.args.frame_max,
+      heartbeat: tune_method.args.heartbeat,
     };
     info!("Sending [TuneOk]");
-    writer.write_method_frame(0, tune_ok_method.try_into()?, None).await?;
 
-    let open_method = conn_methods::Open {
-      vhost: self.options.vhost.clone(),
-      ..conn_methods::Open::default()
-    };
+    let tune_ok = Frame2::new(0, tune_ok_method);
+    writer.write2(tune_ok).await?;
+
 
     info!("Sending [OpenMethod]");
-    writer.write_method_frame(0, open_method.try_into()?, None).await?;
+    let open_method_frame = Frame2::new(0, conn_methods::Open {
+      vhost: self.options.vhost.clone(),
+      ..conn_methods::Open::default()
+    });
+    writer.write2(open_method_frame).await?;
+    info!("Handshake completed");
 
-    let frame = reader.next_method_frame().await?;
-    let _open_ok_method: conn_methods::OpenOk = frame.body.try_into()?;
-    drop(writer);
-
-    info!("Connected to the server");
-
-    self.start_listener();
-
+    let _open_ok_method: Frame2<conn_methods::OpenOk> = reader.next_frame().await?.into();
     Ok(())
   }
 
   pub fn start_listener(&mut self) {
-    let mut reader = self.reader.take().unwrap();
+    let mut reader = self.internal.reader.take().unwrap();
     let channels = self.channels.clone();
-    let inc_frames = self.incomplete_frames.clone();
-    let mut receiver = self.receiver.take().unwrap();
-    let writer = self.writer.clone();
+    let mut receiver = self.frame_rx.take().unwrap();
+    let writer = self.internal.writer.clone();
     let handle = Handle::current();
 
     std::thread::spawn(move || {
       handle.spawn(async move {
         while let Ok(frame) = reader.next_frame().await {
-          match frame {
-            Frame::Method(method_frame) => {
-              debug!("Received method frame: channel {}, class_id {}, method_id: {}", method_frame.chan, method_frame.class_id, method_frame.method_id);
-              if !method_frame.has_content() {
-                let channels_map = channels.lock().await;
-                channels_map[&method_frame.chan].send(method_frame).await.unwrap();
-              } else {
-                inc_frames.lock().await.insert(method_frame.chan, method_frame);
-              }
-            },
-            Frame::Header(header) => {
-              let chan = header.chan;
-              debug!("Received header frame: channel {}, class_id {}", header.chan, header.class_id);
-              let mut pending = inc_frames.lock().await;
-              pending.get_mut(&chan).unwrap().content = Some((header, vec![]))
-            },
-            Frame::Body(mut frame) => {
-              debug!("Received body frame");
-              let mut pending_frames = inc_frames.lock().await;
-              let mut last_frame = pending_frames.remove(&frame.chan).unwrap();
-
-              let mut frame_content = last_frame.content.take().unwrap();
-              frame_content.1.append(&mut frame.body);
-
-              let curr_len = frame_content.1.len();
-              let expected_len = frame_content.0.body_len;
-              last_frame.content = Some(frame_content);
-
-              if curr_len as i64 == expected_len {
-                debug!("Received full frame body");
-                let channels = channels.lock().await;
-                channels[&frame.chan].send(last_frame).await.unwrap();
-              } else {
-                debug!("Received {} bytes, expected {}. Waiting on the next frames", curr_len, expected_len);
-                pending_frames.insert(frame.chan, last_frame);
-              }
-            }
-            _ => {
-              panic!("Unsupported frame type")
-            }
-          }
+          let channels_map = channels.lock().await;
+          channels_map[&frame.ch].send(frame).await.unwrap();
         }
-
-        println!("Received something else");
       });
 
       handle.spawn(async move {
-        while let Some(request) = receiver.0.recv().await {
+        while let Some(request) = receiver.recv().await {
           let mut writer = writer.lock().await;
-          writer.write_method_frame(request.channel, request.payload, request.body).await.unwrap();
+          writer.write(request).await.unwrap();
         }
-
-        debug!("[Connection] methods listener exited")
       });
     });
   }
@@ -214,7 +139,7 @@ impl Connection {
     let id = self.id_allocator.allocate();
 
     info!("[Connection] create_channel {}", id);
-    let mut channel = Channel::new(id, self.sender.clone());
+    let mut channel = Channel::new(id, self.frame_tx.clone());
     {
       let mut channels = self.channels.lock().await;
       channels.insert(channel.id, channel.global_frame_transmitter.clone());

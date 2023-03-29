@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Error;
 
 pub type Table = HashMap<String, Property>;
 
@@ -19,7 +20,8 @@ pub enum Property {
   Table(Table)
 }
 
-pub trait AmqMethod {
+pub trait AmqpMethodArgs: TryInto<Vec<u8>, Error=crate::response::Error> + TryFrom<Vec<u8>, Error=crate::response::Error> {
   fn class_id(&self) -> i16;
   fn method_id(&self) -> i16;
 }
+
