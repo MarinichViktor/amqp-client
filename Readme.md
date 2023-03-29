@@ -1,16 +1,15 @@
-# RabbitMQ client 
-For learning/research purposes.
+# RabbitMQ client
+For learning/research purpose.
 
-## Goals
-The main goal of this project is to build as simple as possible but the working implementation of the RabbitMQ client
-via the implementation bulk of the AMQP protocol. At the same time, this project serves as my pet project for RUST lang learning.
+## To be done:
+- [x] Connection
+- [x] Channel
+- [X] Exchange
+- [x] Queue
+- [ ] Basic (In progress)
+- [ ] Tx
 
-## Current status
-At this stage, it's possible to establish a connection with a server and create a new channel. Queues and Exchanges could be
-declared through a channel, and bonded with a routing key. Also, users could start a consumer for the queue.
-TODO: implement message publishing.
-
-## Example:
+## Usage:
 ```rust
 const EXCHANGE: &str = "my-exchange";
 const ROUTING_KEY: &str = "my.key";
@@ -41,10 +40,4 @@ async fn main() -> Result<()> {
   Ok(())
 }
 ```
-## To be done:
-- [x] Connection
-- [x] Channel
-- [X] Exchange
-- [x] Queue
-- [ ] Basic
-- [ ] Tx
+
