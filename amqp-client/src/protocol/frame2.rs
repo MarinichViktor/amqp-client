@@ -1,7 +1,8 @@
-use std::any::Any;
 use std::io::Write;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use amqp_protocol::enc::Encode;
 use amqp_protocol::types::AmqpMethodArgs;
+use crate::protocol::basic::fields::Fields;
 use crate::protocol::frame::{HeaderFrame, MethodFrame};
 
 #[derive(Debug)]
@@ -10,12 +11,12 @@ pub struct RawFrame {
   pub cid: i16,
   pub mid: i16,
   pub args: Vec<u8>,
-  pub prop_fields: Option<Vec<u8>>,
+  pub prop_fields: Option<Fields>,
   pub body: Option<Vec<u8>>
 }
 
 impl RawFrame {
-  pub fn new(ch: i16, cid: i16, mid: i16, args: Vec<u8>, prop_fields: Option<Vec<u8>>, body: Option<Vec<u8>>) -> Self {
+  pub fn new(ch: i16, cid: i16, mid: i16, args: Vec<u8>, prop_fields: Option<Fields>, body: Option<Vec<u8>>) -> Self {
     Self { ch, cid, mid, args, prop_fields, body }
   }
 }
@@ -39,8 +40,20 @@ impl Into<Vec<Vec<u8>>> for RawFrame {
       header_body.write_short(self.cid).unwrap();
       header_body.write_short(0).unwrap();
       header_body.write_long(body.len() as i64).unwrap();
+
+      let mut fields = Fields::new();
+      fields.user_id = Some("qrhorpow".into());
+      fields.content_type = Some("application/json".into());
+      fields.ty = Some("my-msg".into());
+      fields.content_encoding = Some("text/plain".into());
+      fields.reply_to = Some("some-q".into());
+      fields.timestamp = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap());
+      fields.message_id = Some("123123".into());
       // todo: allow fields passing instead of hardcoded value
-      header_body.write_short(0).unwrap();
+      // header_body.write_short(0).unwrap();
+      header_body.append(&mut fields.into());
+      // header_body.write_short(-32768).unwrap();
+      // header_body.write_short_str("text/plain".into()).unwrap();
 
       let mut header_frame = vec![];
       header_frame.write_byte(2).unwrap();
@@ -137,13 +150,26 @@ impl PendingFrame {
 
 impl Into<RawFrame> for PendingFrame {
   fn into(self) -> RawFrame {
+    let prop_fields = if let Some(header) = self.header {
+      Some(Fields::from(header.prop_list))
+    } else {
+      None
+    };
+
+    let body = if !self.body.is_empty() {
+      Some(self.body)
+    } else {
+      None
+    };
+
+
     RawFrame {
       ch: self.method.chan,
       cid: self.method.class_id,
       mid: self.method.method_id,
       args: self.method.body,
-      prop_fields: None,
-      body: Some(self.body)
+      prop_fields,
+      body
     }
   }
 }

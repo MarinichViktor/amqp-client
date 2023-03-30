@@ -1,10 +1,7 @@
-pub mod stream;
 pub mod frame;
-pub mod connection;
-pub mod channel;
-pub mod exchange;
+
 pub use amqp_protocol::types::{AmqpMethodArgs, Table};
-pub mod queue;
+
 pub(crate) mod basic;
 pub (crate) mod reader;
 pub (crate) mod writer;

@@ -21,6 +21,7 @@ async fn main() -> Result<()> {
   tokio::spawn(async move {
     while let Some(frame) = queue_recv.recv().await {
       println!("Received a message: {:?}", String::from_utf8(frame.body.unwrap()));
+      println!("Received a message: {:?}", frame.prop_fields);
     }
   });
 

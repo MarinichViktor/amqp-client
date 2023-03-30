@@ -116,8 +116,7 @@ impl FrameReader {
           chan,
           class_id,
           body_len,
-          prop_flags,
-          prop_list: body[14..].to_vec()
+          prop_list: body[12..].to_vec()
         })
       }
       3 => {

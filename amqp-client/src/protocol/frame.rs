@@ -30,7 +30,6 @@ pub struct HeaderFrame {
   pub chan: i16,
   pub class_id: i16,
   pub body_len: i64,
-  pub prop_flags: i16,
   pub prop_list: Vec<u8>,
 }
 
