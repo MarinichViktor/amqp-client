@@ -34,4 +34,16 @@ impl FrameWriter {
   pub async fn write2<T: AmqpMethodArgs>(&mut self, frame: Frame2<T>) -> Result<()> {
     self.write(frame.into()).await
   }
+
+  pub async fn write3<T: AmqpMethodArgs>(&mut self, ch: i16, args: T) -> Result<()> {
+    let raw_frame = RawFrame::new(
+      ch,
+      args.class_id(),
+      args.method_id(),
+      args.try_into()?,
+      None,
+      None
+    );
+    self.write(raw_frame).await
+  }
 }

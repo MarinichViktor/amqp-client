@@ -5,12 +5,14 @@ use log::{info};
 use tokio::io::{BufReader, BufWriter};
 use tokio::net::TcpStream;
 use tokio::runtime::Handle;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, oneshot};
 
 use amqp_protocol::types::Property;
 
 use crate::{Channel, Result};
 use crate::protocol::amqp_connection::AmqpConnection;
+use crate::protocol::basic;
+use crate::protocol::basic::methods::Deliver;
 use self::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
 use crate::protocol::reader::FrameReader;
 use crate::protocol::writer::FrameWriter;
@@ -32,6 +34,7 @@ pub struct Connection {
   channels: Arc<Mutex<HashMap<i16, mpsc::Sender<RawFrame>>>>,
   frame_tx: mpsc::Sender<RawFrame>,
   frame_rx: Option<mpsc::Receiver<RawFrame>>,
+  sync_waiter_queue: Arc<Mutex<HashMap<i16, Vec<oneshot::Sender<RawFrame>>>>>
 }
 
 impl Connection {
@@ -47,7 +50,8 @@ impl Connection {
       id_allocator: IdAllocator::new(),
       channels: Arc::new(Mutex::new(HashMap::new())),
       frame_tx: sender,
-      frame_rx: Some(receiver)
+      frame_rx: Some(receiver),
+      sync_waiter_queue: Default::default()
     }
   }
 
@@ -77,13 +81,13 @@ impl Connection {
       ("information".to_string(), Property::LongStr(INFORMATION.to_string()))
     ]);
     // todo: add const for default channel or separate struct
-    let start_ok = Frame2::new(0, conn_methods::StartOk {
+    let start_ok = conn_methods::StartOk {
       properties: client_properties,
       mechanism: DEFAULT_AUTH_MECHANISM.to_string(),
       response: format!("\x00{}\x00{}", self.options.login.as_str(), self.options.password),
       locale: DEFAULT_LOCALE.to_string(),
-    });
-    writer.write2(start_ok).await?;
+    };
+    writer.write3(0, start_ok).await?;
 
     let tune_method: Frame2<conn_methods::Tune> = reader.next_frame().await?.into();
 
@@ -95,16 +99,15 @@ impl Connection {
     };
     info!("Sending [TuneOk]");
 
-    let tune_ok = Frame2::new(0, tune_ok_method);
-    writer.write2(tune_ok).await?;
+    writer.write3(0, tune_ok_method).await?;
 
 
     info!("Sending [OpenMethod]");
-    let open_method_frame = Frame2::new(0, conn_methods::Open {
+    let open_method_frame = conn_methods::Open {
       vhost: self.options.vhost.clone(),
       ..conn_methods::Open::default()
-    });
-    writer.write2(open_method_frame).await?;
+    };
+    writer.write3(0, open_method_frame).await?;
     info!("Handshake completed");
 
     let _open_ok_method: Frame2<conn_methods::OpenOk> = reader.next_frame().await?.into();
@@ -117,6 +120,7 @@ impl Connection {
     let mut receiver = self.frame_rx.take().unwrap();
     let writer = self.internal.writer.clone();
     let handle = Handle::current();
+    let sync_waiter_queue = self.sync_waiter_queue.clone();
 
     std::thread::spawn(move || {
       handle.spawn(async move {
@@ -149,149 +153,3 @@ impl Connection {
     Ok(channel)
   }
 }
-
-// const FRAME_HEADER_SIZE: usize = 7;
-// const FRAME_END_SIZE: usize = 1;
-//
-// pub struct FrameReader {
-//   inner: BufReader<OwnedReadHalf>,
-//   buf: BytesMut,
-// }
-//
-// impl FrameReader {
-//   pub fn new(inner: BufReader<OwnedReadHalf>) -> Self {
-//     Self {
-//       inner,
-//       // todo: review default capacity
-//       buf: BytesMut::with_capacity(128 * 1024)
-//     }
-//   }
-//
-//   pub async fn next_method_frame(&mut self) -> Result<MethodFrame> {
-//     let mut frame = self.next_frame().await?;
-//
-//     loop {
-//       match frame {
-//         Frame::Method(method)  => {
-//           return Ok(method);
-//         },
-//         // todo: check for the header frame?
-//         _ => {
-//           frame = self.next_frame().await?;
-//         }
-//       }
-//     }
-//   }
-//
-//   pub async fn next_frame(&mut self) -> Result<Frame> {
-//     loop {
-//       if let Some(frame) = self.read_frame()? {
-//         return Ok(frame);
-//       }
-//
-//       // todo: what if no capacity left?
-//       if 0 == self.inner.read_buf(&mut self.buf).await? {
-//         // todo: add check for size of the buf, if its error or connection close
-//         bail!("Failed to read. Connection closed")
-//       }
-//     }
-//   }
-//
-//   pub fn read_frame(&mut self) -> Result<Option<Frame>> {
-//     if self.buf.len() < FRAME_HEADER_SIZE {
-//       debug!("read_frame: frame header is no available");
-//       return Ok(None);
-//     }
-//
-//     let mut buf = Cursor::new(&self.buf[..7]);
-//     let frame_type = buf.read_byte()?;
-//     let chan = buf.read_short()?;
-//     let size = buf.read_int()?;
-//
-//     // header + body_size + frame_end_byte
-//     let frame_size = FRAME_HEADER_SIZE + size as usize + FRAME_END_SIZE;
-//     if self.buf.len() < frame_size as usize {
-//       debug!("read_frame: frame body is no available");
-//       return Ok(None)
-//     }
-//
-//     self.buf.advance(7);
-//     let body = self.buf.split_to(size as usize).to_vec();
-//     // read frame end byte
-//     assert_eq!(206, self.buf[0]);
-//     self.buf.advance(1);
-//
-//     debug!("read_frame: Type {}, Chan {}, Size {}", frame_type, chan, size);
-//
-//     let frame = match frame_type {
-//       1 => {
-//         let mut meta = Cursor::new(body[..4].to_vec());
-//         let class_id = meta.read_short()?;
-//         let method_id = meta.read_short()?;
-//
-//         Frame::Method(MethodFrame { chan, class_id, method_id, body, content_header: None, content_body: None })
-//       },
-//       2 => {
-//         let mut meta = Cursor::new(body[..14].to_vec());
-//         let class_id = meta.read_short()?;
-//         let _weight = meta.read_short()?;
-//         let body_len = meta.read_long()?;
-//         let prop_flags = meta.read_short()?;
-//
-//         Frame::Header(HeaderFrame {
-//           chan,
-//           class_id,
-//           body_len,
-//           prop_flags,
-//           prop_list: body[14..].to_vec()
-//         })
-//       }
-//       3 => {
-//         Frame::Body(BodyFrame {
-//           chan,
-//           body
-//         })
-//       }
-//       4 => {
-//         Frame::Heartbeat
-//       },
-//       // todo: fix this
-//       _ => {
-//         panic!("Unknown frame type")
-//       }
-//     };
-//
-//     Ok(Some(frame))
-//   }
-// }
-
-// pub struct FrameWriter {
-//   inner: BufWriter<OwnedWriteHalf>
-// }
-//
-// impl FrameWriter {
-//   pub fn new(inner: BufWriter<OwnedWriteHalf>) -> Self {
-//     Self { inner }
-//   }
-//
-//   pub async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<()> {
-//     self.inner.write_all(buf).await?;
-//     self.inner.flush().await?;
-//     Ok(())
-//   }
-//
-//   pub async fn write_frame<T: TryInto<Vec<u8>, Error=anyhow::Error>>(&mut self, chan: i16, args: T) -> Result<()> {
-//     use std::io::Write;
-//
-//     let arg_buff = args.try_into()?;
-//     let mut frame_buff = vec![];
-//     frame_buff.write_byte(1)?;
-//     frame_buff.write_short(chan)?;
-//     Encode::write_uint(&mut frame_buff, arg_buff.len() as u32)?;
-//     Write::write(&mut frame_buff, &arg_buff)?;
-//     frame_buff.write_byte(0xCE)?;
-//     self.write_all(&frame_buff).await?;
-//
-//     Ok(())
-//   }
-// }

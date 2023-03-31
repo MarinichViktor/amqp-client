@@ -41,19 +41,11 @@ impl Into<Vec<Vec<u8>>> for RawFrame {
       header_body.write_short(0).unwrap();
       header_body.write_long(body.len() as i64).unwrap();
 
-      let mut fields = Fields::new();
-      fields.user_id = Some("qrhorpow".into());
-      fields.content_type = Some("application/json".into());
-      fields.ty = Some("my-msg".into());
-      fields.content_encoding = Some("text/plain".into());
-      fields.reply_to = Some("some-q".into());
-      fields.timestamp = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap());
-      fields.message_id = Some("123123".into());
-      // todo: allow fields passing instead of hardcoded value
-      // header_body.write_short(0).unwrap();
-      header_body.append(&mut fields.into());
-      // header_body.write_short(-32768).unwrap();
-      // header_body.write_short_str("text/plain".into()).unwrap();
+      if let Some(fields) = self.prop_fields {
+        header_body.append(&mut fields.into());
+      } else {
+        header_body.write_short(0).unwrap();
+      }
 
       let mut header_frame = vec![];
       header_frame.write_byte(2).unwrap();
@@ -81,7 +73,7 @@ impl Into<Vec<Vec<u8>>> for RawFrame {
 pub struct Frame2<T: AmqpMethodArgs> {
   pub ch: i16,
   pub args: T,
-  pub prop_fields: Option<Vec<u8>>,
+  pub prop_fields: Option<Fields>,
   pub body: Option<Vec<u8>>
 }
 
@@ -110,7 +102,7 @@ impl <T: AmqpMethodArgs> Into<RawFrame> for Frame2<T> {
       cid: self.args.class_id(),
       mid: self.args.method_id(),
       args: self.args.try_into().unwrap(),
-      prop_fields: None,
+      prop_fields: self.prop_fields,
       body: self.body
     }
   }

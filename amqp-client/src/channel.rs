@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use crate::{ExchangeType, Result};
+use crate::{ExchangeType, Fields, Result};
 use log::{debug, info};
 use crate::connection::{FrameTransmitter};
 use tokio::sync::{oneshot, mpsc};
@@ -8,7 +8,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use crate::protocol::basic::methods::{Deliver};
 use crate::channel::methods::{Open, OpenOk};
 use crate::protocol::frame2::{Frame2, RawFrame};
-use amqp_protocol::types::{Table};
+use amqp_protocol::types::{AmqpMethodArgs, Table};
 use crate::exchange::ExchangeDeclareOptsBuilder;
 use crate::queue::QueueDeclareOptsBuilder;
 
@@ -59,6 +59,10 @@ impl AmqChannel {
               handler.send(frame).unwrap();
             },
             _ => {
+              //  todo: useless
+              println!("***");
+              println!("Unreachable code");
+              println!("***");
               let mut sync_waiter_queue = sync_waiter_queue.lock().unwrap();
               sync_waiter_queue.pop().unwrap().send(frame).unwrap();
             }
@@ -71,8 +75,7 @@ impl AmqChannel {
     });
 
     let method = Open::default();
-    let payload = Frame2::new(self.id, method);
-    let response = self.send_and_wait(payload.into()).await?;
+    let response = self.send_and_wait(method).await?;
     Ok(response.args.try_into()?)
   }
 
@@ -106,8 +109,7 @@ impl AmqChannel {
     debug!("Declare exchange");
     let mut builder = ExchangeDeclareOptsBuilder::new();
     configure(&mut builder);
-    let frame = Frame2::new(self.id, Declare::from(builder.build()));
-    self.send_and_wait(frame.into()).await?;
+    self.send_and_wait(Declare::from(builder.build())).await?;
 
     Ok(())
   }
@@ -142,8 +144,7 @@ impl AmqChannel {
 
     configure(&mut opts);
 
-    let frame = Frame2::new(self.id, Declare::from(opts.build()));
-    let response = self.send_and_wait(frame.into()).await?;
+    let response = self.send_and_wait(Declare::from(opts.build())).await?;
     let payload: DeclareOk = response.args.try_into()?;
 
     Ok(payload.name)
@@ -161,7 +162,7 @@ impl AmqChannel {
       no_wait: 0,
       table: HashMap::new()
     };
-    self.send_and_wait(Frame2::new(self.id, payload).into()).await?;
+    self.send_and_wait(payload).await?;
 
     Ok(())
   }
@@ -177,7 +178,7 @@ impl AmqChannel {
       table: HashMap::new()
     };
 
-    self.send_and_wait(Frame2::new(self.id, payload).into()).await?;
+    self.send_and_wait(payload).await?;
 
     Ok(())
   }
@@ -190,8 +191,7 @@ impl AmqChannel {
       return Ok(())
     }
 
-    let frame = Frame2::new(self.id, Flow { active: active as u8 });
-    self.send_and_wait(frame.into()).await?;
+    self.send_and_wait(Flow { active: active as u8 }).await?;
     // self.active = active;
 
     Ok(())
@@ -209,7 +209,7 @@ impl AmqChannel {
       table: HashMap::new()
     };
 
-    let response = self.send_and_wait(Frame2::new(self.id, payload).into()).await?;
+    let response = self.send_and_wait(payload).await?;
     let payload: ConsumeOk = response.args.try_into()?;
 
     info!("Consume ok with tag: {}", payload.tag.clone());
@@ -219,7 +219,7 @@ impl AmqChannel {
     Ok(rx)
   }
 
-  pub async fn publish(&self, exchange: String, routing_key: String, payload: Vec<u8>) -> Result<()> {
+  pub async fn publish(&self, exchange: String, routing_key: String, payload: Vec<u8>, fields: Option<Fields>) -> Result<()> {
     use crate::protocol::basic::methods::{Publish};
 
     info!("Publishing message");
@@ -232,47 +232,65 @@ impl AmqChannel {
     let frame = Frame2 {
       ch: self.id,
       args: method,
-      prop_fields: None,
+      prop_fields: fields,
       body: Some(payload)
     };
     info!("Wait for the response");
-    self.send(frame.into()).await?;
+
+    {
+      let writer = self.writer.lock().unwrap();
+      writer.send(frame.into()).await?;
+    }
+
     info!("Message was published");
 
     Ok(())
   }
-  //
-  // pub async fn close(&self) -> Result<()> {
-  //   use crate::protocol::channel::methods::Close;
-  //
-  //   debug!("Closing channel {}", self.id);
-  //   self.send_sync(Close {
-  //     reply_code: 200,
-  //     reply_text: "Closed".to_string(),
-  //     class_id: 0,
-  //     method_id: 0,
-  //   }).await?;
-  //
-  //   Ok(())
-  // }
 
-  async fn send_and_wait(&self, request: RawFrame) -> Result<RawFrame> {
+  pub async fn close(&self) -> Result<()> {
+    use crate::channel::methods::Close;
+
+    debug!("Closing channel {}", self.id);
+    self.send_and_wait(Close {
+      reply_code: 200,
+      reply_text: "Closed".to_string(),
+      class_id: 0,
+      method_id: 0,
+    }).await?;
+
+    Ok(())
+  }
+
+  async fn send_and_wait<T: AmqpMethodArgs>(&self, args: T) -> Result<RawFrame> {
     let (tx, rx) = oneshot::channel::<RawFrame>();
     let sync_waiter_queue = self.sync_waiter_queue.clone();
     sync_waiter_queue.lock().unwrap().push(tx);
 
+    let request: Frame2<T> = Frame2::new(self.id, args);
+
     let writer = self.writer.lock().unwrap();
-    writer.send(request).await?;
+    writer.send(request.into()).await?;
 
     Ok(rx.await?)
   }
 
-  async fn send(&self, request: RawFrame) -> Result<()> {
+  async fn send<T: AmqpMethodArgs>(&self, args: T) -> Result<()> {
     let writer = self.writer.lock().unwrap();
-    writer.send(request).await?;
+
+    let request: Frame2<T> = Frame2::new(self.id, args);
+
+    writer.send(request.into()).await?;
     Ok(())
   }
 
+  async fn send_with_body<T: AmqpMethodArgs>(&self, args: T, fields: Option<Fields>, body: Vec<u8>) -> Result<()> {
+    let writer = self.writer.lock().unwrap();
+
+    let request: Frame2<T> = Frame2::new(self.id, args);
+
+    writer.send(request.into()).await?;
+    Ok(())
+  }
   // async fn send_async(&self, request: RawFrame) -> Result<()> {
   //   let mut writer = self.writer.lock().unwrap();
   //   writer.send( request).await?;
