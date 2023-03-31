@@ -10,6 +10,7 @@ use crate::channel::methods::{Open, OpenOk};
 use crate::protocol::frame2::{Frame2, RawFrame};
 use amqp_protocol::types::{AmqpMethodArgs, Table};
 use crate::exchange::ExchangeDeclareOptsBuilder;
+use crate::protocol::writer::FrameWriter;
 use crate::queue::QueueDeclareOptsBuilder;
 
 pub mod methods;
@@ -17,7 +18,7 @@ pub mod constants;
 
 pub struct AmqChannel {
   pub id: i16,
-  connection_notifier: Mutex<FrameTransmitter>,
+  con_writer: Arc<tokio::sync::Mutex<FrameWriter>>,
   channel_notifier: Option<mpsc::Receiver<RawFrame>>,
   active: bool,
   consumers: Arc<Mutex<HashMap<String, mpsc::UnboundedSender<RawFrame>>>>,
@@ -25,10 +26,10 @@ pub struct AmqChannel {
 }
 
 impl AmqChannel {
-  pub(crate) fn new(id: i16, connection_notifier: FrameTransmitter, channel_notifier: mpsc::Receiver<RawFrame>) -> Self {
+  pub(crate) fn new(id: i16, connection_notifier: Arc<tokio::sync::Mutex<FrameWriter>>, channel_notifier: mpsc::Receiver<RawFrame>) -> Self {
     Self {
       id,
-      connection_notifier: Mutex::new(connection_notifier),
+      con_writer: connection_notifier,
       channel_notifier: Some(channel_notifier),
       active: true,
       consumers: Arc::new(Mutex::new(Default::default())),
@@ -233,10 +234,8 @@ impl AmqChannel {
     };
     info!("Wait for the response");
 
-    {
-      let writer = self.connection_notifier.lock().unwrap();
-      writer.send(frame.into()).await?;
-    }
+    let mut writer = self.con_writer.lock().await;
+    writer.send_raw_frame(frame.into()).await?;
 
     info!("Message was published");
 
@@ -263,122 +262,9 @@ impl AmqChannel {
     sync_waiter_queue.lock().unwrap().push(tx);
 
     let request: Frame2<T> = Frame2::new(self.id, args);
-
-    let writer = self.connection_notifier.lock().unwrap();
-    writer.send(request.into()).await?;
+    let mut writer = self.con_writer.lock().await;
+    writer.send_raw_frame(request.into()).await?;
 
     Ok(rx.await?)
   }
-
-  // async fn send<T: AmqpMethodArgs>(&self, args: T) -> Result<()> {
-  //   let writer = self.connection_notifier.lock().unwrap();
-  //
-  //   let request: Frame2<T> = Frame2::new(self.id, args);
-  //
-  //   writer.send(request.into()).await?;
-  //   Ok(())
-  // }
-  //
-  // async fn send_with_body<T: AmqpMethodArgs>(&self, args: T, fields: Option<Fields>, body: Vec<u8>) -> Result<()> {
-  //   let writer = self.connection_notifier.lock().unwrap();
-  //
-  //   let request: Frame2<T> = Frame2::new(self.id, args);
-  //
-  //   writer.send(request.into()).await?;
-  //   Ok(())
-  // }
-  // async fn send_async(&self, request: RawFrame) -> Result<()> {
-  //   let mut writer = self.writer.lock().unwrap();
-  //   writer.send( request).await?;
-  //
-  //   Ok(())
-  // }
-
-  // todo: refactor result to avoid response prefix
-  // pub fn handle_frame(&self, frame: MethodFrame) -> Result<()> {
-  //   match frame.class_id {
-  //     20 => {
-  //       // self.handle_chan_frame(frame)?;
-  //     },
-  //     40 => {
-  //       // self.handle_exchange_frame(frame)?;
-  //     },
-  //     50 => {
-  //       // self.handle_queue_frame(frame)?;
-  //     },
-  //     60 => {
-  //       // self.handle_basic_frame(frame)?;
-  //     },
-  //     _ => {
-  //       panic!("Received unknown method {}, {}", frame.class_id, frame.method_id);
-  //     }
-  //   }
-  //   Ok(())
-  // }
-  //
-  // fn handle_chan_frame(&self, frame: MethodFrame) -> Result<()> {
-  //   use crate::protocol::channel::{methods::{OpenOk, CloseOk}, constants::{METHOD_OPEN_OK, METHOD_CLOSE_OK}};
-  //
-  //   match frame.method_id {
-  //     METHOD_OPEN_OK|METHOD_CLOSE_OK => {
-  //       self.waiter_sender.lock().unwrap().send(frame)?;
-  //     },
-  //     _ => {
-  //       panic!("Received unknown method {}, {}", frame.class_id, frame.method_id);
-  //     }
-  //   }
-  //   Ok(())
-  // }
-  //
-  // fn handle_exchange_frame(&self, frame: MethodFrame) -> Result<()> {
-  //   use crate::protocol::exchange::{methods::{DeclareOk}, constants::{METHOD_DECLARE_OK}};
-  //
-  //   match frame.method_id {
-  //     METHOD_DECLARE_OK => {
-  //       self.waiter_sender.lock().unwrap().send(frame)?;
-  //     },
-  //     _ => {
-  //       panic!("Received unknown method");
-  //     }
-  //   }
-  //   Ok(())
-  // }
-  //
-  // fn handle_queue_frame(&self, frame: MethodFrame) -> Result<()> {
-  //   use crate::protocol::queue::{methods::{DeclareOk, BindOk, UnbindOk}, constants::{METHOD_DECLARE_OK, METHOD_BIND_OK, METHOD_UNBIND_OK}};
-  //
-  //   match frame.method_id {
-  //     METHOD_DECLARE_OK|METHOD_BIND_OK|METHOD_UNBIND_OK => {
-  //       self.waiter_sender.lock().unwrap().send(frame)?;
-  //     },
-  //     _ => {
-  //       panic!("Received unknown queue method");
-  //     }
-  //   }
-  //   Ok(())
-  // }
-  //
-  // fn handle_basic_frame(&self, frame: MethodFrame) -> Result<()> {
-  //   use crate::protocol::basic::{methods::{ConsumeOk,Deliver}, constants::{METHOD_CONSUME_OK, METHOD_DELIVER}};
-  //
-  //   match frame.method_id {
-  //     METHOD_CONSUME_OK => {
-  //       self.waiter_sender.lock().unwrap().send(frame)?;
-  //     },
-  //     METHOD_DELIVER => {
-  //       let payload: Deliver = frame.body.clone().try_into()?;
-  //       let consumers = self.consumers.lock().unwrap();
-  //       let handler = consumers.get(&payload.consumer_tag).unwrap();
-  //       handler.send(frame)?;
-  //     },
-  //     _ => {
-  //       panic!("Received unknown queue method");
-  //     }
-  //   }
-  //   Ok(())
-  // }
-  //
-  // fn wait_for_response(&self) -> Result<MethodFrame> {
-  //   Ok(self.waiter_channel.lock().unwrap().recv()?)
-  // }
 }

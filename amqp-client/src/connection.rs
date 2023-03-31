@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use log::{info};
 use tokio::io::{BufReader, BufWriter};
 use tokio::net::TcpStream;
-use tokio::runtime::Handle;
 use tokio::sync::{mpsc};
 
 use amqp_protocol::types::Property;
@@ -28,8 +27,6 @@ pub struct Connection {
   amqp_handle: AmqpConnection,
   options: ConnectionOpts,
   id_allocator: IdAllocator,
-  frame_tx: mpsc::Sender<RawFrame>,
-  frame_rx: Option<mpsc::Receiver<RawFrame>>,
 }
 
 impl Connection {
@@ -37,19 +34,16 @@ impl Connection {
     let stream_parts = stream.into_split();
     let reader = FrameReader::new(BufReader::new(stream_parts.0));
     let writer = FrameWriter::new(BufWriter::new(stream_parts.1));
-    let (sender, receiver) = mpsc::channel(128);
 
     Self {
       amqp_handle: AmqpConnection::new(reader, writer),
       options,
       id_allocator: IdAllocator::new(),
-      frame_tx: sender,
-      frame_rx: Some(receiver),
     }
   }
 
   pub async fn connect(&mut self) -> Result<()> {
-    self.start_listener().await;
+    self.amqp_handle.start_listener();
     self.handshake().await?;
     Ok(())
   }
@@ -109,29 +103,13 @@ impl Connection {
     Ok(())
   }
 
-  pub async fn start_listener(&mut self) {
-    let mut receiver = self.frame_rx.take().unwrap();
-    let handle = Handle::current();
-    self.amqp_handle.start_listener();
-    let writer = self.amqp_handle.get_writer().clone();
-
-    std::thread::spawn(move || {
-      handle.spawn(async move {
-        while let Some(request) = receiver.recv().await {
-          let mut writer = writer.lock().await;
-          writer.send_raw_frame(request).await.unwrap();
-        }
-      });
-    });
-  }
-
   pub async fn create_channel(&mut self) -> Result<Channel> {
     let id = self.id_allocator.allocate();
 
     info!("[Connection] create_channel {}", id);
     let rx = self.amqp_handle.subscribe(id).await;
 
-    let mut channel = Channel::new(id, self.frame_tx.clone(), rx);
+    let mut channel = Channel::new(id, self.amqp_handle.get_writer().clone(), rx);
     channel.open().await?;
 
     Ok(channel)
