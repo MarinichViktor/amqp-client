@@ -1,18 +1,15 @@
 use std::collections::HashMap;
-use std::sync::{Arc};
 
 use log::{info};
 use tokio::io::{BufReader, BufWriter};
 use tokio::net::TcpStream;
 use tokio::runtime::Handle;
-use tokio::sync::{mpsc, Mutex, oneshot};
+use tokio::sync::{mpsc};
 
 use amqp_protocol::types::Property;
 
 use crate::{Channel, Result};
 use crate::protocol::amqp_connection::AmqpConnection;
-use crate::protocol::basic;
-use crate::protocol::basic::methods::Deliver;
 use self::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
 use crate::protocol::reader::FrameReader;
 use crate::protocol::writer::FrameWriter;
@@ -28,13 +25,11 @@ pub mod options;
 pub type FrameTransmitter = mpsc::Sender<RawFrame>;
 
 pub struct Connection {
-  internal: AmqpConnection,
+  amqp_handle: AmqpConnection,
   options: ConnectionOpts,
   id_allocator: IdAllocator,
-  channels: Arc<Mutex<HashMap<i16, mpsc::Sender<RawFrame>>>>,
   frame_tx: mpsc::Sender<RawFrame>,
   frame_rx: Option<mpsc::Receiver<RawFrame>>,
-  sync_waiter_queue: Arc<Mutex<HashMap<i16, Vec<oneshot::Sender<RawFrame>>>>>
 }
 
 impl Connection {
@@ -45,19 +40,17 @@ impl Connection {
     let (sender, receiver) = mpsc::channel(128);
 
     Self {
-      internal: AmqpConnection::new(reader, writer),
+      amqp_handle: AmqpConnection::new(reader, writer),
       options,
       id_allocator: IdAllocator::new(),
-      channels: Arc::new(Mutex::new(HashMap::new())),
       frame_tx: sender,
       frame_rx: Some(receiver),
-      sync_waiter_queue: Default::default()
     }
   }
 
   pub async fn connect(&mut self) -> Result<()> {
+    self.start_listener().await;
     self.handshake().await?;
-    self.start_listener();
     Ok(())
   }
 
@@ -66,12 +59,14 @@ impl Connection {
     use self::methods as conn_methods;
 
     info!("Handshake started");
-    let mut writer = self.internal.writer.lock().await;
-    let reader = self.internal.reader.as_mut().unwrap();
+    let mut reader = self.amqp_handle.subscribe(0).await;
 
     info!("Sending [ProtocolHeader]");
-    writer.write_all(&PROTOCOL_HEADER).await?;
-    let _start_method: Frame2<conn_methods::Start> = reader.next_frame().await?.into();
+    let writer = self.amqp_handle.get_writer();
+    let mut writer = writer.lock().await;
+    writer.write_binary(&PROTOCOL_HEADER).await?;
+    println!("Waiting for the response");
+    let _start_method: Frame2<conn_methods::Start> = reader.recv().await.unwrap().into();
 
     info!("Sending [StartOk]");
     let client_properties = HashMap::from([
@@ -87,9 +82,9 @@ impl Connection {
       response: format!("\x00{}\x00{}", self.options.login.as_str(), self.options.password),
       locale: DEFAULT_LOCALE.to_string(),
     };
-    writer.write3(0, start_ok).await?;
+    writer.send_method(0, start_ok).await?;
 
-    let tune_method: Frame2<conn_methods::Tune> = reader.next_frame().await?.into();
+    let tune_method: Frame2<conn_methods::Tune> = reader.recv().await.unwrap().into();
 
     // todo: use values from conn options
     let tune_ok_method = conn_methods::TuneOk {
@@ -99,7 +94,7 @@ impl Connection {
     };
     info!("Sending [TuneOk]");
 
-    writer.write3(0, tune_ok_method).await?;
+    writer.send_method(0, tune_ok_method).await?;
 
 
     info!("Sending [OpenMethod]");
@@ -107,33 +102,24 @@ impl Connection {
       vhost: self.options.vhost.clone(),
       ..conn_methods::Open::default()
     };
-    writer.write3(0, open_method_frame).await?;
+    writer.send_method(0, open_method_frame).await?;
     info!("Handshake completed");
 
-    let _open_ok_method: Frame2<conn_methods::OpenOk> = reader.next_frame().await?.into();
+    let _open_ok_method: Frame2<conn_methods::OpenOk> = reader.recv().await.unwrap().into();
     Ok(())
   }
 
-  pub fn start_listener(&mut self) {
-    let mut reader = self.internal.reader.take().unwrap();
-    let channels = self.channels.clone();
+  pub async fn start_listener(&mut self) {
     let mut receiver = self.frame_rx.take().unwrap();
-    let writer = self.internal.writer.clone();
     let handle = Handle::current();
-    let sync_waiter_queue = self.sync_waiter_queue.clone();
+    self.amqp_handle.start_listener();
+    let writer = self.amqp_handle.get_writer().clone();
 
     std::thread::spawn(move || {
       handle.spawn(async move {
-        while let Ok(frame) = reader.next_frame().await {
-          let channels_map = channels.lock().await;
-          channels_map[&frame.ch].send(frame).await.unwrap();
-        }
-      });
-
-      handle.spawn(async move {
         while let Some(request) = receiver.recv().await {
           let mut writer = writer.lock().await;
-          writer.write(request).await.unwrap();
+          writer.send_raw_frame(request).await.unwrap();
         }
       });
     });
@@ -143,11 +129,9 @@ impl Connection {
     let id = self.id_allocator.allocate();
 
     info!("[Connection] create_channel {}", id);
-    let mut channel = Channel::new(id, self.frame_tx.clone());
-    {
-      let mut channels = self.channels.lock().await;
-      channels.insert(channel.id, channel.global_frame_transmitter.clone());
-    }
+    let rx = self.amqp_handle.subscribe(id).await;
+
+    let mut channel = Channel::new(id, self.frame_tx.clone(), rx);
     channel.open().await?;
 
     Ok(channel)

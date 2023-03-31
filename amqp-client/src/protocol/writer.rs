@@ -1,10 +1,8 @@
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::net::tcp::{OwnedWriteHalf};
-use amqp_protocol::enc::Encode;
 use amqp_protocol::types::AmqpMethodArgs;
 use crate::{Result};
-use crate::protocol::frame2::{Frame2, RawFrame};
-use crate::protocol::frame::Frame;
+use crate::protocol::frame2::{RawFrame};
 
 pub struct FrameWriter {
   inner: BufWriter<OwnedWriteHalf>
@@ -15,27 +13,23 @@ impl FrameWriter {
     Self { inner }
   }
 
-  pub async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<()> {
+  pub async fn write_binary<'a>(&'a mut self, buf: &'a [u8]) -> Result<()> {
     self.inner.write_all(buf).await?;
     self.inner.flush().await?;
     Ok(())
   }
 
-  pub async fn write(&mut self, frame: RawFrame) -> Result<()> {
+  pub async fn send_raw_frame(&mut self, frame: RawFrame) -> Result<()> {
     let buf: Vec<Vec<u8>> = frame.into();
 
     for amqp_frame in buf {
-      self.write_all(& amqp_frame).await?;
+      self.write_binary(& amqp_frame).await?;
     }
 
     Ok(())
   }
 
-  pub async fn write2<T: AmqpMethodArgs>(&mut self, frame: Frame2<T>) -> Result<()> {
-    self.write(frame.into()).await
-  }
-
-  pub async fn write3<T: AmqpMethodArgs>(&mut self, ch: i16, args: T) -> Result<()> {
+  pub async fn send_method<T: AmqpMethodArgs>(&mut self, ch: i16, args: T) -> Result<()> {
     let raw_frame = RawFrame::new(
       ch,
       args.class_id(),
@@ -44,6 +38,6 @@ impl FrameWriter {
       None,
       None
     );
-    self.write(raw_frame).await
+    self.send_raw_frame(raw_frame).await
   }
 }

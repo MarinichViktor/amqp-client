@@ -17,23 +17,19 @@ pub mod constants;
 
 pub struct AmqChannel {
   pub id: i16,
-  pub global_frame_transmitter: mpsc::Sender<RawFrame>,
-  writer: Mutex<FrameTransmitter>,
-  global_frame_receiver: Option<mpsc::Receiver<RawFrame>>,
+  connection_notifier: Mutex<FrameTransmitter>,
+  channel_notifier: Option<mpsc::Receiver<RawFrame>>,
   active: bool,
   consumers: Arc<Mutex<HashMap<String, mpsc::UnboundedSender<RawFrame>>>>,
   sync_waiter_queue: Arc<Mutex<Vec<oneshot::Sender<RawFrame>>>>
 }
 
 impl AmqChannel {
-  pub(crate) fn new(id: i16, writer: FrameTransmitter) -> Self {
-    let (inner_tx, inner_rx) = mpsc::channel(64);
-
+  pub(crate) fn new(id: i16, connection_notifier: FrameTransmitter, channel_notifier: mpsc::Receiver<RawFrame>) -> Self {
     Self {
       id,
-      writer: Mutex::new(writer),
-      global_frame_transmitter: inner_tx,
-      global_frame_receiver: Some(inner_rx),
+      connection_notifier: Mutex::new(connection_notifier),
+      channel_notifier: Some(channel_notifier),
       active: true,
       consumers: Arc::new(Mutex::new(Default::default())),
       sync_waiter_queue: Arc::new(Mutex::new(vec![]))
@@ -42,7 +38,7 @@ impl AmqChannel {
 
   pub async fn open(&mut self) -> Result<OpenOk> {
     let sync_waiter_queue = self.sync_waiter_queue.clone();
-    let mut inner_rx = self.global_frame_receiver.take().unwrap();
+    let mut inner_rx = self.channel_notifier.take().unwrap();
     let consumers = self.consumers.clone();
 
     info!("[Channel] start incoming listener");
@@ -75,7 +71,7 @@ impl AmqChannel {
     });
 
     let method = Open::default();
-    let response = self.send_and_wait(method).await?;
+    let response = self.invoke_sync_method(method).await?;
     Ok(response.args.try_into()?)
   }
 
@@ -109,7 +105,7 @@ impl AmqChannel {
     debug!("Declare exchange");
     let mut builder = ExchangeDeclareOptsBuilder::new();
     configure(&mut builder);
-    self.send_and_wait(Declare::from(builder.build())).await?;
+    self.invoke_sync_method(Declare::from(builder.build())).await?;
 
     Ok(())
   }
@@ -144,7 +140,7 @@ impl AmqChannel {
 
     configure(&mut opts);
 
-    let response = self.send_and_wait(Declare::from(opts.build())).await?;
+    let response = self.invoke_sync_method(Declare::from(opts.build())).await?;
     let payload: DeclareOk = response.args.try_into()?;
 
     Ok(payload.name)
@@ -162,7 +158,7 @@ impl AmqChannel {
       no_wait: 0,
       table: HashMap::new()
     };
-    self.send_and_wait(payload).await?;
+    self.invoke_sync_method(payload).await?;
 
     Ok(())
   }
@@ -178,7 +174,7 @@ impl AmqChannel {
       table: HashMap::new()
     };
 
-    self.send_and_wait(payload).await?;
+    self.invoke_sync_method(payload).await?;
 
     Ok(())
   }
@@ -191,7 +187,7 @@ impl AmqChannel {
       return Ok(())
     }
 
-    self.send_and_wait(Flow { active: active as u8 }).await?;
+    self.invoke_sync_method(Flow { active: active as u8 }).await?;
     // self.active = active;
 
     Ok(())
@@ -209,7 +205,7 @@ impl AmqChannel {
       table: HashMap::new()
     };
 
-    let response = self.send_and_wait(payload).await?;
+    let response = self.invoke_sync_method(payload).await?;
     let payload: ConsumeOk = response.args.try_into()?;
 
     info!("Consume ok with tag: {}", payload.tag.clone());
@@ -238,7 +234,7 @@ impl AmqChannel {
     info!("Wait for the response");
 
     {
-      let writer = self.writer.lock().unwrap();
+      let writer = self.connection_notifier.lock().unwrap();
       writer.send(frame.into()).await?;
     }
 
@@ -251,7 +247,7 @@ impl AmqChannel {
     use crate::channel::methods::Close;
 
     debug!("Closing channel {}", self.id);
-    self.send_and_wait(Close {
+    self.invoke_sync_method(Close {
       reply_code: 200,
       reply_text: "Closed".to_string(),
       class_id: 0,
@@ -261,36 +257,36 @@ impl AmqChannel {
     Ok(())
   }
 
-  async fn send_and_wait<T: AmqpMethodArgs>(&self, args: T) -> Result<RawFrame> {
+  async fn invoke_sync_method<T: AmqpMethodArgs>(&self, args: T) -> Result<RawFrame> {
     let (tx, rx) = oneshot::channel::<RawFrame>();
     let sync_waiter_queue = self.sync_waiter_queue.clone();
     sync_waiter_queue.lock().unwrap().push(tx);
 
     let request: Frame2<T> = Frame2::new(self.id, args);
 
-    let writer = self.writer.lock().unwrap();
+    let writer = self.connection_notifier.lock().unwrap();
     writer.send(request.into()).await?;
 
     Ok(rx.await?)
   }
 
-  async fn send<T: AmqpMethodArgs>(&self, args: T) -> Result<()> {
-    let writer = self.writer.lock().unwrap();
-
-    let request: Frame2<T> = Frame2::new(self.id, args);
-
-    writer.send(request.into()).await?;
-    Ok(())
-  }
-
-  async fn send_with_body<T: AmqpMethodArgs>(&self, args: T, fields: Option<Fields>, body: Vec<u8>) -> Result<()> {
-    let writer = self.writer.lock().unwrap();
-
-    let request: Frame2<T> = Frame2::new(self.id, args);
-
-    writer.send(request.into()).await?;
-    Ok(())
-  }
+  // async fn send<T: AmqpMethodArgs>(&self, args: T) -> Result<()> {
+  //   let writer = self.connection_notifier.lock().unwrap();
+  //
+  //   let request: Frame2<T> = Frame2::new(self.id, args);
+  //
+  //   writer.send(request.into()).await?;
+  //   Ok(())
+  // }
+  //
+  // async fn send_with_body<T: AmqpMethodArgs>(&self, args: T, fields: Option<Fields>, body: Vec<u8>) -> Result<()> {
+  //   let writer = self.connection_notifier.lock().unwrap();
+  //
+  //   let request: Frame2<T> = Frame2::new(self.id, args);
+  //
+  //   writer.send(request.into()).await?;
+  //   Ok(())
+  // }
   // async fn send_async(&self, request: RawFrame) -> Result<()> {
   //   let mut writer = self.writer.lock().unwrap();
   //   writer.send( request).await?;
