@@ -12,12 +12,12 @@ async fn main() -> Result<()> {
   let mut connection = ConnectionFactory::create(connection_uri).await?;
   let channel = connection.create_channel().await?;
 
-  channel.declare_exchange(EXCHANGE.into(), ExchangeType::Direct, true, false, false, false,None).await?;
+  channel.declare_exchange(EXCHANGE, ExchangeType::Direct, true, false, false, false,None).await?;
   let queue = channel.declare_queue("", false, false, false, false, None).await?;
 
-  channel.bind(queue.clone(), EXCHANGE.into(), ROUTING_KEY.into()).await?;
+  channel.bind(&queue, EXCHANGE, ROUTING_KEY).await?;
 
-  let mut queue_recv = channel.consume(queue.clone()).await?;
+  let mut queue_recv = channel.consume(&queue).await?;
   tokio::spawn(async move {
     while let Some(frame) = queue_recv.recv().await {
       println!("Received a message: {:?}", String::from_utf8(frame.body.unwrap()));

@@ -74,7 +74,7 @@ impl AmqChannel {
 
   pub async fn declare_exchange(
     &self,
-    name: String,
+    name: &str,
     ty: ExchangeType,
     durable: bool,
     passive: bool,
@@ -84,7 +84,7 @@ impl AmqChannel {
   ) -> Result<()>
   {
     self.declare_exchange_with_builder(|builder| {
-      builder.name(name);
+      builder.name(name.into());
       builder.ty(ty);
       builder.durable(durable);
       builder.passive(passive);
@@ -143,15 +143,15 @@ impl AmqChannel {
     Ok(payload.name)
   }
 
-  pub async fn bind(&self, queue_name: String, exchange_name: String, routing_key: String) -> Result<()> {
+  pub async fn bind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) -> Result<()> {
     use crate::queue::methods::Bind;
 
     debug!("Bind queue: {} to: exchange {} with key: {}", queue_name.clone(), exchange_name.clone(), routing_key.clone());
     let payload = Bind {
       reserved1: 0,
-      queue_name,
-      exchange_name,
-      routing_key,
+      queue_name: queue_name.into(),
+      exchange_name: exchange_name.into(),
+      routing_key: routing_key.into(),
       no_wait: 0,
       table: HashMap::new()
     };
@@ -190,13 +190,13 @@ impl AmqChannel {
     Ok(())
   }
 
-  pub async fn consume(&self, queue: String) -> Result<UnboundedReceiver<RawFrame>> {
+  pub async fn consume(&self, queue: &str) -> Result<UnboundedReceiver<RawFrame>> {
     use crate::protocol::basic::methods::{Consume,ConsumeOk};
 
     info!("Consuming queue: {}", queue.clone());
     let payload = Consume {
       reserved1: 0,
-      queue,
+      queue: queue.into(),
       tag: String::from(""),
       flags: 0,
       table: HashMap::new()

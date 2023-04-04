@@ -36,7 +36,7 @@ impl AmqpConnection {
     rx
   }
 
-  pub fn start_listener(&mut self) {
+  pub fn start_frames_listener(&mut self) {
     let mut reader = self.reader.take().unwrap();
     let channels = self.listeners.clone();
     let sync_waiter_queue = self.sync_waiter_queue.clone();
@@ -68,7 +68,6 @@ impl AmqpConnection {
               println!("heartbeat received");
             }
           }
-
         }
       });
     });

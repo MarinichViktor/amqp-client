@@ -8,7 +8,7 @@ use tokio::sync::{mpsc};
 use amqp_protocol::types::Property;
 
 use crate::{Channel, Result};
-use crate::default_channel::DefaultChannel;
+use crate::default_channel::{DEFAULT_CHANNEL_ID, DefaultChannel};
 use crate::protocol::amqp_connection::AmqpConnection;
 use self::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
 use crate::protocol::reader::FrameReader;
@@ -44,9 +44,9 @@ impl Connection {
   }
 
   pub async fn connect(&mut self) -> Result<()> {
-    self.amqp_handle.start_listener();
+    self.amqp_handle.start_frames_listener();
 
-    let reader = self.amqp_handle.subscribe(0).await;
+    let reader = self.amqp_handle.subscribe(DEFAULT_CHANNEL_ID).await;
     let mut default_channel = DefaultChannel::new(self.amqp_handle.get_writer().clone(), reader);
     default_channel.open(self.options.clone()).await;
     Ok(())

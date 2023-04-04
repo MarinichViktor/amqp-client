@@ -10,6 +10,8 @@ use crate::connection::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LO
 use crate::connection::options::ConnectionOpts;
 use crate::protocol::writer::FrameWriter;
 
+pub const DEFAULT_CHANNEL_ID: i16 = 0;
+
 pub struct DefaultChannel {
   pub id: i16,
   writer: Arc<Mutex<FrameWriter>>,
