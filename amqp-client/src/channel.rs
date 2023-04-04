@@ -56,10 +56,6 @@ impl AmqChannel {
               handler.send(frame).unwrap();
             },
             _ => {
-              //  todo: useless
-              println!("***");
-              println!("Unreachable code");
-              println!("***");
               let mut sync_waiter_queue = sync_waiter_queue.lock().unwrap();
               sync_waiter_queue.pop().unwrap().send(frame).unwrap();
             }
@@ -232,11 +228,9 @@ impl AmqChannel {
       prop_fields: fields,
       body: Some(payload)
     };
-    info!("Wait for the response");
 
     let mut writer = self.con_writer.lock().await;
     writer.send_raw_frame(frame.into()).await?;
-
     info!("Message was published");
 
     Ok(())
@@ -262,8 +256,10 @@ impl AmqChannel {
     sync_waiter_queue.lock().unwrap().push(tx);
 
     let request: Frame2<T> = Frame2::new(self.id, args);
-    let mut writer = self.con_writer.lock().await;
-    writer.send_raw_frame(request.into()).await?;
+    {
+      let mut writer = self.con_writer.lock().await;
+      writer.send_raw_frame(request.into()).await?;
+    }
 
     Ok(rx.await?)
   }
