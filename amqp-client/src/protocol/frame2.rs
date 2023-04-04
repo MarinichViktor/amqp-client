@@ -5,6 +5,11 @@ use amqp_protocol::types::AmqpMethodArgs;
 use crate::protocol::basic::fields::Fields;
 use crate::protocol::frame::{HeaderFrame, MethodFrame};
 
+pub enum FrameKind {
+  Method(RawFrame),
+  Heartbeat
+}
+
 #[derive(Debug)]
 pub struct RawFrame {
   pub ch: i16,

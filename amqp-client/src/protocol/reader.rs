@@ -8,7 +8,9 @@ use tokio::net::tcp::OwnedReadHalf;
 use amqp_protocol::dec::Decode;
 use crate::protocol::frame::{BodyFrame, Frame, HeaderFrame, MethodFrame};
 use crate::{Result};
-use crate::protocol::frame2::{PendingFrame, RawFrame};
+use crate::protocol::frame2::{FrameKind, PendingFrame, RawFrame};
+use tokio::sync::mpsc;
+use url::form_urlencoded::parse;
 
 const FRAME_HEADER_SIZE: usize = 7;
 const FRAME_END_SIZE: usize = 1;
@@ -16,7 +18,7 @@ const FRAME_END_SIZE: usize = 1;
 pub struct FrameReader {
   inner: BufReader<OwnedReadHalf>,
   buf: BytesMut,
-  pending_frames: Arc<Mutex<HashMap<i16, PendingFrame>>>
+  pending_frames: Arc<Mutex<HashMap<i16, PendingFrame>>>,
 }
 
 impl FrameReader {
@@ -24,18 +26,18 @@ impl FrameReader {
     Self {
       inner,
       buf: BytesMut::with_capacity(128 * 1024),
-      pending_frames: Default::default()
+      pending_frames: Default::default(),
     }
   }
 
-  pub async fn next_frame(&mut self) -> Result<RawFrame> {
+  pub async fn next_frame(&mut self) -> Result<FrameKind> {
     loop {
       if let Some(amqp_frame) = self.parse_frame()? {
         let result = match amqp_frame {
           Frame::Method(method) => {
             if !method.has_content() {
               let raw_frame = RawFrame::new(method.chan, method.class_id, method.method_id, method.body, None, None);
-              Some(raw_frame)
+              Some(FrameKind::Method(raw_frame))
             } else {
               self.pending_frames.lock().unwrap().insert(method.chan, PendingFrame::new(method));
               None
@@ -53,19 +55,19 @@ impl FrameReader {
             pending_frame.append_body(&mut frame.body);
 
             if pending_frame.is_completed() {
-              Some(pending_frame.into())
+              Some(FrameKind::Method(pending_frame.into()))
             } else {
               pending_frames.insert(frame.chan, pending_frame);
               None
             }
           },
           Frame::Heartbeat => {
-            panic!("Heartbeat received");
+            Some(FrameKind::Heartbeat)
           }
         };
 
-        if let Some(raw_frame) = result {
-          return Ok(raw_frame);
+        if let Some(frame) = result {
+          return Ok(frame);
         };
       }
 
@@ -106,11 +108,10 @@ impl FrameReader {
         Frame::Method(MethodFrame { chan, class_id, method_id, body })
       },
       2 => {
-        let mut meta = Cursor::new(body[..14].to_vec());
+        let mut meta = Cursor::new(body[..12].to_vec());
         let class_id = meta.read_short()?;
         let _weight = meta.read_short()?;
         let body_len = meta.read_long()?;
-        let prop_flags = meta.read_short()?;
 
         Frame::Header(HeaderFrame {
           chan,
@@ -127,7 +128,7 @@ impl FrameReader {
       },
       // todo: fix this
       _ => {
-        panic!("Unknown frame type")
+        Frame::Heartbeat
       }
     };
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::runtime::Handle;
 
 use tokio::sync::{mpsc, Mutex, oneshot};
-use crate::protocol::frame2::{RawFrame};
+use crate::protocol::frame2::{FrameKind, RawFrame};
 
 use crate::protocol::reader::FrameReader;
 use crate::protocol::writer::FrameWriter;
@@ -45,21 +45,30 @@ impl AmqpConnection {
     std::thread::spawn(move || {
       handle.spawn(async move {
         while let Ok(frame) = reader.next_frame().await {
-          let mut sync_waiter_queue = sync_waiter_queue.lock().await;
+          match frame {
+            FrameKind::Method(frame) => {
+              let mut sync_waiter_queue = sync_waiter_queue.lock().await;
 
-          if let Some(senders) = sync_waiter_queue.get_mut(&frame.ch) {
-            if !senders.is_empty() {
-              let sender = senders.remove(0);
-              sender.send(frame).unwrap();
-              continue;
+              if let Some(senders) = sync_waiter_queue.get_mut(&frame.ch) {
+                if !senders.is_empty() {
+                  let sender = senders.remove(0);
+                  sender.send(frame).unwrap();
+                  continue;
+                }
+              }
+
+              let mut channels = channels.lock().await;
+
+              if let Some(sender) = channels.get_mut(&frame.ch) {
+                sender.send(frame).await.unwrap();
+              }
+            }
+            FrameKind::Heartbeat => {
+              // todo: monitor frame frequency
+              println!("heartbeat received");
             }
           }
 
-          let mut channels = channels.lock().await;
-
-          if let Some(sender) = channels.get_mut(&frame.ch) {
-            sender.send(frame).await.unwrap();
-          }
         }
       });
     });
