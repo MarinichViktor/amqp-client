@@ -212,14 +212,14 @@ impl AmqChannel {
     Ok(rx)
   }
 
-  pub async fn publish(&self, exchange: String, routing_key: String, payload: Vec<u8>, fields: Option<Fields>) -> Result<()> {
+  pub async fn publish(&self, exchange: &str, routing_key: &str, payload: Vec<u8>, fields: Option<Fields>) -> Result<()> {
     use crate::protocol::basic::methods::{Publish};
 
     info!("Publishing message");
     let method = Publish {
       reserved1: 0,
-      exchange,
-      routing_key,
+      exchange: exchange.into(),
+      routing_key: routing_key.into(),
       flags: 0,
     };
     let frame = Frame2 {

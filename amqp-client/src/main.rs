@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
   let mut fields = Fields::new();
   fields.content_type = Some("text/plain".into());
   fields.reply_to = Some("abcefg".into());
-  channel.publish(EXCHANGE.into(), ROUTING_KEY.into(), "Hello world!".as_bytes().to_vec(), Some(fields)).await?;
+  channel.publish(EXCHANGE, ROUTING_KEY, "Hello world!".as_bytes().to_vec(), Some(fields)).await?;
 
   let mut s = String::new();
   println!("Waiting ...");
