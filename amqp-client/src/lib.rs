@@ -2,6 +2,7 @@ pub(crate) mod protocol;
 pub(crate) mod utils;
 pub mod connection;
 pub mod channel;
+pub mod default_channel;
 pub mod exchange;
 pub mod queue;
 

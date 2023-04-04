@@ -8,6 +8,7 @@ use tokio::sync::{mpsc};
 use amqp_protocol::types::Property;
 
 use crate::{Channel, Result};
+use crate::default_channel::DefaultChannel;
 use crate::protocol::amqp_connection::AmqpConnection;
 use self::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
 use crate::protocol::reader::FrameReader;
@@ -44,69 +45,16 @@ impl Connection {
 
   pub async fn connect(&mut self) -> Result<()> {
     self.amqp_handle.start_listener();
-    self.handshake().await?;
-    Ok(())
-  }
 
-  async fn handshake(&mut self) -> Result<()> {
-    use self::constants::PROTOCOL_HEADER;
-    use self::methods as conn_methods;
-
-    info!("Handshake started");
-    let mut reader = self.amqp_handle.subscribe(0).await;
-
-    info!("Sending [ProtocolHeader]");
-    let writer = self.amqp_handle.get_writer();
-    let mut writer = writer.lock().await;
-    writer.write_binary(&PROTOCOL_HEADER).await?;
-    println!("Waiting for the response");
-    let _start_method: Frame2<conn_methods::Start> = reader.recv().await.unwrap().into();
-
-    info!("Sending [StartOk]");
-    let client_properties = HashMap::from([
-      ("product".to_string(), Property::LongStr(PRODUCT.to_string())),
-      ("platform".to_string(), Property::LongStr(PLATFORM.to_string())),
-      ("copyright".to_string(), Property::LongStr(COPYRIGHT.to_string())),
-      ("information".to_string(), Property::LongStr(INFORMATION.to_string()))
-    ]);
-    // todo: add const for default channel or separate struct
-    let start_ok = conn_methods::StartOk {
-      properties: client_properties,
-      mechanism: DEFAULT_AUTH_MECHANISM.to_string(),
-      response: format!("\x00{}\x00{}", self.options.login.as_str(), self.options.password),
-      locale: DEFAULT_LOCALE.to_string(),
-    };
-    writer.send_method(0, start_ok).await?;
-
-    let tune_method: Frame2<conn_methods::Tune> = reader.recv().await.unwrap().into();
-
-    // todo: use values from conn options
-    let tune_ok_method = conn_methods::TuneOk {
-      chan_max: tune_method.args.chan_max,
-      frame_max: tune_method.args.frame_max,
-      heartbeat: tune_method.args.heartbeat,
-    };
-    info!("Sending [TuneOk]");
-
-    writer.send_method(0, tune_ok_method).await?;
-
-
-    info!("Sending [OpenMethod]");
-    let open_method_frame = conn_methods::Open {
-      vhost: self.options.vhost.clone(),
-      ..conn_methods::Open::default()
-    };
-    writer.send_method(0, open_method_frame).await?;
-    info!("Handshake completed");
-
-    let _open_ok_method: Frame2<conn_methods::OpenOk> = reader.recv().await.unwrap().into();
+    let reader = self.amqp_handle.subscribe(0).await;
+    let mut default_channel = DefaultChannel::new(self.amqp_handle.get_writer().clone(), reader);
+    default_channel.open(self.options.clone()).await;
     Ok(())
   }
 
   pub async fn create_channel(&mut self) -> Result<Channel> {
     let id = self.id_allocator.allocate();
 
-    info!("[Connection] create_channel {}", id);
     let rx = self.amqp_handle.subscribe(id).await;
 
     let mut channel = Channel::new(id, self.amqp_handle.get_writer().clone(), rx);

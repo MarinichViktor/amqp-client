@@ -1,5 +1,5 @@
 use log::{info};
-use amqp_client::{Result, ConnectionFactory, ExchangeType};
+use amqp_client::{Result, ConnectionFactory, ExchangeType, Fields};
 
 const EXCHANGE: &str = "my-exchange";
 const ROUTING_KEY: &str = "my.key";
@@ -25,7 +25,10 @@ async fn main() -> Result<()> {
     }
   });
 
-  channel.publish(EXCHANGE.into(), ROUTING_KEY.into(), "Hello world!".as_bytes().to_vec()).await?;
+  let mut fields = Fields::new();
+  fields.content_type = Some("text/plain".into());
+  fields.reply_to = Some("abcefg".into());
+  channel.publish(EXCHANGE.into(), ROUTING_KEY.into(), "Hello world!".as_bytes().to_vec(), Some(fields)).await?;
 
   let mut s = String::new();
   println!("Waiting ...");
