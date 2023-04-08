@@ -1,8 +1,8 @@
 use std::io::Write;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::net::tcp::{OwnedWriteHalf};
-use amqp_protocol::enc::Encode;
-use amqp_protocol::types::AmqMethod;
+use crate::protocol::enc::Encode;
+use crate::protocol::types::AmqMethod;
 use crate::{Result};
 
 pub struct ConWriter {

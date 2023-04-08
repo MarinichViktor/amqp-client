@@ -5,7 +5,7 @@ use anyhow::bail;
 use bytes::{Buf, BytesMut};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::OwnedReadHalf;
-use amqp_protocol::dec::Decode;
+use crate::protocol::dec::Decode;
 use crate::protocol::frame::{BodyFrame, Frame, HeaderFrame, MethodFrame};
 use crate::{Result};
 use crate::protocol::frame2::{FrameKind, PendingFrame, RawFrame};
@@ -88,12 +88,12 @@ impl FrameReader {
       return Ok(None);
     }
 
-    let mut buf = Cursor::new(&self.buf[..7]);
-    let frame_type = buf.read_byte()?;
-    let chan = buf.read_short()?;
-    let size = buf.read_int()?;
+    let header = self.buf.split_to(7);
+    let mut header = Cursor::new(&header[..]);
+    let frame_type = header.read_byte()?;
+    let chan = header.read_short()?;
+    let size = header.read_int()?;
 
-    self.buf.advance(7);
     let body = self.buf.split_to(size as usize).to_vec();
     // read frame end byte
     assert_eq!(206, self.buf[0]);

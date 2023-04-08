@@ -5,9 +5,9 @@ use tokio::io::{BufReader, BufWriter};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc};
 
-use amqp_protocol::types::Property;
+use crate::protocol::types::Property;
 
-use crate::{Channel, Result};
+use crate::{Result};
 use crate::default_channel::{DEFAULT_CHANNEL_ID, DefaultChannel};
 use crate::protocol::amqp_connection::AmqpConnection;
 use self::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
@@ -52,14 +52,14 @@ impl Connection {
     Ok(())
   }
 
-  pub async fn create_channel(&mut self) -> Result<Channel> {
-    let id = self.id_allocator.allocate();
-
-    let rx = self.amqp_handle.subscribe(id).await;
-
-    let mut channel = Channel::new(id, self.amqp_handle.get_writer().clone(), rx);
-    channel.open().await?;
-
-    Ok(channel)
-  }
+  // pub async fn create_channel(&mut self) -> Result<Channel> {
+  //   let id = self.id_allocator.allocate();
+  //
+  //   let rx = self.amqp_handle.subscribe(id).await;
+  //
+  //   let mut channel = Channel::new(id, self.amqp_handle.get_writer().clone(), rx);
+  //   channel.open().await?;
+  //
+  //   Ok(channel)
+  // }
 }

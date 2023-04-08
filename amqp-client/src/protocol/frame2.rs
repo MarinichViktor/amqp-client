@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use amqp_protocol::enc::Encode;
-use amqp_protocol::types::AmqpMethodArgs;
+use crate::protocol::enc::Encode;
+use crate::protocol::types::AmqpMethodArgs;
 use crate::protocol::basic::fields::Fields;
 use crate::protocol::frame::{HeaderFrame, MethodFrame};
 

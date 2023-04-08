@@ -4,7 +4,7 @@ use bytes::{Buf, BytesMut};
 use log::debug;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::OwnedReadHalf;
-use amqp_protocol::dec::Decode;
+use crate::protocol::dec::Decode;
 use crate::protocol::frame::{BodyFrame, Frame, HeaderFrame, MethodFrame};
 use crate::{Result};
 

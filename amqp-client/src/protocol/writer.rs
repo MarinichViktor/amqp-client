@@ -1,6 +1,6 @@
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::net::tcp::{OwnedWriteHalf};
-use amqp_protocol::types::AmqpMethodArgs;
+use crate::protocol::types::AmqpMethodArgs;
 use crate::{Result};
 use crate::protocol::frame2::{RawFrame};
 

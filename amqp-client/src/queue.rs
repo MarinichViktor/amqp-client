@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use amqp_protocol::types::Table;
+use crate::protocol::types::PropTable;
 
 pub mod constants;
 pub mod methods;
@@ -11,7 +11,7 @@ pub struct QueueDeclareOpts {
   pub exclusive: bool,
   pub auto_delete: bool,
   pub no_wait: bool,
-  pub props: Table
+  pub props: PropTable
 }
 
 impl Default for QueueDeclareOpts {
@@ -68,7 +68,7 @@ impl QueueDeclareOptsBuilder {
     self.opts.no_wait = no_wait;
   }
 
-  pub fn props(&mut self, props: Table) {
+  pub fn props(&mut self, props: PropTable) {
     self.opts.props = props;
   }
 }
