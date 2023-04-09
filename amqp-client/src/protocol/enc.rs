@@ -1,102 +1,102 @@
 use std::collections::HashMap;
 use byteorder::{BigEndian, WriteBytesExt};
 use log::info;
-use crate::types::Property;
-use crate::response;
+use crate::protocol::types::{LongStr, Property, ShortStr};
+use crate::{Result, Error};
 
 pub trait Encode {
-  fn write_bool(&mut self, val: bool) -> response::Result<()>;
-  fn write_byte(&mut self, val: u8) -> response::Result<()>;
-  fn write_short(&mut self, val: i16) -> response::Result<()>;
-  fn write_ushort(&mut self, val: u16) -> response::Result<()>;
-  fn write_int(&mut self, val: i32) -> response::Result<()>;
-  fn write_uint(&mut self, val: u32) -> response::Result<()>;
-  fn write_long(&mut self, val: i64) -> response::Result<()>;
-  fn write_ulong(&mut self, val: u64) -> response::Result<()>;
-  fn write_float(&mut self, val: f32) -> response::Result<()>;
-  fn write_double(&mut self, val: f64) -> response::Result<()>;
-  fn write_short_str(&mut self, val: String) -> response::Result<()>;
-  fn write_long_str(&mut self, val: String) -> response::Result<()>;
-  fn write_field_value_pair(&mut self, val: (String, Property)) -> response::Result<()>;
-  fn write_field_value(&mut self, val: Property) -> response::Result<()>;
-  fn write_argument(&mut self, val: Property) -> response::Result<()>;
-  fn write_prop_table(&mut self, val: HashMap<String, Property>) -> response::Result<()>;
+  fn write_bool(&mut self, val: bool) -> Result<()>;
+  fn write_byte(&mut self, val: u8) -> Result<()>;
+  fn write_short(&mut self, val: i16) -> Result<()>;
+  fn write_ushort(&mut self, val: u16) -> Result<()>;
+  fn write_int(&mut self, val: i32) -> Result<()>;
+  fn write_uint(&mut self, val: u32) -> Result<()>;
+  fn write_long(&mut self, val: i64) -> Result<()>;
+  fn write_ulong(&mut self, val: u64) -> Result<()>;
+  fn write_float(&mut self, val: f32) -> Result<()>;
+  fn write_double(&mut self, val: f64) -> Result<()>;
+  fn write_shortstr(&mut self, val: ShortStr) -> Result<()>;
+  fn write_longstr(&mut self, val: LongStr) -> Result<()>;
+  fn write_field_value_pair(&mut self, val: (ShortStr, Property)) -> Result<()>;
+  fn write_field_value(&mut self, val: Property) -> Result<()>;
+  fn write_argument(&mut self, val: Property) -> Result<()>;
+  fn write_proptable(&mut self, val: HashMap<ShortStr, Property>) -> Result<()>;
 }
 
 impl <T: std::io::Write + ?Sized> Encode for T {
-  fn write_bool(&mut self, val: bool) -> response::Result<()> {
+  fn write_bool(&mut self, val: bool) -> Result<()> {
     self.write_u8( if val { 1 } else { 0 })?;
     Ok(())
   }
 
-  fn write_byte(&mut self, val: u8) -> response::Result<()> {
+  fn write_byte(&mut self, val: u8) -> Result<()> {
     self.write_u8(val)?;
     Ok(())
   }
 
-  fn write_short(&mut self, val: i16) -> response::Result<()> {
+  fn write_short(&mut self, val: i16) -> Result<()> {
     self.write_i16::<BigEndian>(val)?;
     Ok(())
   }
 
-  fn write_ushort(&mut self, val: u16) -> response::Result<()> {
+  fn write_ushort(&mut self, val: u16) -> Result<()> {
     self.write_u16::<BigEndian>(val)?;
     Ok(())
   }
 
-  fn write_int(&mut self, val: i32) -> response::Result<()> {
+  fn write_int(&mut self, val: i32) -> Result<()> {
     self.write_i32::<BigEndian>(val)?;
     Ok(())
   }
 
-  fn write_uint(&mut self, val: u32) -> response::Result<()> {
+  fn write_uint(&mut self, val: u32) -> Result<()> {
     self.write_u32::<BigEndian>(val)?;
     Ok(())
   }
 
-  fn write_long(&mut self, val: i64) -> response::Result<()> {
+  fn write_long(&mut self, val: i64) -> Result<()> {
     self.write_i64::<BigEndian>(val)?;
     Ok(())
   }
 
-  fn write_ulong(&mut self, val: u64) -> response::Result<()> {
+  fn write_ulong(&mut self, val: u64) -> Result<()> {
     self.write_u64::<BigEndian>(val)?;
     Ok(())
   }
 
-  fn write_float(&mut self, val: f32) -> response::Result<()> {
+  fn write_float(&mut self, val: f32) -> Result<()> {
     self.write_f32::<BigEndian>(val)?;
     Ok(())
   }
 
-  fn write_double(&mut self, val: f64) -> response::Result<()> {
+  fn write_double(&mut self, val: f64) -> Result<()> {
     self.write_f64::<BigEndian>(val)?;
     Ok(())
   }
 
-  fn write_short_str(&mut self, val: String) -> response::Result<()> {
-    let str_bytes = val.into_bytes();
+  fn write_shortstr(&mut self, val: ShortStr) -> Result<()> {
+    let str_bytes = val.0.into_bytes();
     // str_bytes.reverse();
     self.write_byte(str_bytes.len() as u8)?;
     self.write(& str_bytes)?;
     Ok(())
   }
 
-  fn write_long_str(&mut self, val: String) -> response::Result<()> {
-    let str_bytes = val.into_bytes();
+  fn write_longstr(&mut self, val: LongStr) -> Result<()> {
+    let str_bytes = val.0.into_bytes();
     // str_bytes.reverse();
     Encode::write_uint(self, str_bytes.len() as u32)?;
     self.write(& str_bytes)?;
     Ok(())
   }
 
-  fn write_field_value_pair(&mut self, val: (String, Property)) -> response::Result<()> {
-    self.write_short_str(val.0)?;
+  fn write_field_value_pair(&mut self, val: (ShortStr, Property)) -> Result<()> {
+    self.write_shortstr(val.0)?;
     self.write_field_value(val.1)?;
     Ok(())
   }
 
-  fn write_field_value(&mut self, val: Property) -> response::Result<()> {
+  fn write_field_value(&mut self, val: Property) -> Result<()> {
     match val {
       Property::Bool(v) => {
         self.write_byte('t' as u8)?;
@@ -140,22 +140,22 @@ impl <T: std::io::Write + ?Sized> Encode for T {
       }
       Property::ShortStr(v) => {
         self.write_byte('s' as u8)?;
-        self.write_short_str(v)?;
+        self.write_shortstr(v)?;
       }
       Property::LongStr(v) => {
         self.write_byte('S' as u8)?;
-        self.write_long_str(v)?;
+        self.write_longstr(v)?;
       }
       Property::Table(v) => {
         self.write_byte('F' as u8)?;
-        self.write_prop_table(v)?;
+        self.write_proptable(v)?;
       }
     }
 
     Ok(())
   }
 
-  fn write_argument(&mut self, val: Property) -> response::Result<()> {
+  fn write_argument(&mut self, val: Property) -> Result<()> {
     match val {
       Property::Bool(v) => {
         self.write_bool(v)?;
@@ -188,19 +188,19 @@ impl <T: std::io::Write + ?Sized> Encode for T {
         self.write_double(v)?;
       }
       Property::ShortStr(v) => {
-        self.write_short_str(v)?;
+        self.write_shortstr(v)?;
       }
       Property::LongStr(v) => {
-        self.write_long_str(v)?;
+        self.write_longstr(v)?;
       }
       Property::Table(v) => {
-        self.write_prop_table(v)?;
+        self.write_proptable(v)?;
       }
     }
 
     Ok(())
   }
-  fn write_prop_table(&mut self, val: HashMap<String, Property>) -> response::Result<()> {
+  fn write_proptable(&mut self, val: HashMap<ShortStr, Property>) -> Result<()> {
     let mut buff = vec![];
 
     for pair in val {
@@ -208,7 +208,6 @@ impl <T: std::io::Write + ?Sized> Encode for T {
     }
 
     Encode::write_uint(self, buff.len() as u32)?;
-    info!("Write prop table size {} ", buff.len() as u32);
     self.write(& buff)?;
     Ok(())
   }
