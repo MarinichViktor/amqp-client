@@ -1,5 +1,5 @@
 use tokio::net::TcpStream;
-use crate::connection::options::ConnectionArgs;
+use crate::api::connection::options::ConnectionArgs;
 use super::{Connection, ConnectionAddress};
 use crate::Result;
 

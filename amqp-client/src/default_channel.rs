@@ -5,8 +5,8 @@ use tokio::sync::{mpsc, Mutex,oneshot};
 use crate::protocol::enc::Encode;
 use crate::protocol::frame2::{Frame2, RawFrame};
 use crate::protocol::types::{LongStr, Property, ShortStr};
-use crate::connection::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT, PROTOCOL_HEADER};
-use crate::connection::options::ConnectionAddress;
+use crate::api::connection::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT, PROTOCOL_HEADER};
+use crate::api::connection::options::ConnectionAddress;
 use crate::protocol::writer::FrameWriter;
 
 pub const DEFAULT_CHANNEL_ID: i16 = 0;
@@ -35,7 +35,7 @@ impl DefaultChannel {
 
     info!("[Channel] start incoming listener");
     tokio::spawn(async move {
-      use crate::connection::methods as conn_methods;
+      use crate::api::connection::methods as conn_methods;
 
       let mut tx = Some(tx);
       info!("Sending [ProtocolHeader]");

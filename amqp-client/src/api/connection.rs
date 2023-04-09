@@ -10,8 +10,8 @@ use tokio::sync::{mpsc};
 use crate::protocol::types::{ConnectionOpen, ConnectionStartOk, ConnectionTuneOk, LongStr, Property, ShortStr};
 
 use crate::{Result};
-use crate::connection::constants::PROTOCOL_HEADER;
-use crate::connection::options::ConnectionArgs;
+use crate::api::connection::options::ConnectionArgs;
+use crate::api::connection::constants::PROTOCOL_HEADER;
 use crate::default_channel::{DEFAULT_CHANNEL_ID, DefaultChannel};
 use crate::protocol::PropTable;
 use self::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
@@ -25,6 +25,7 @@ pub mod constants;
 pub mod methods;
 pub mod factory;
 pub mod options;
+pub use self::factory::ConnectionFactory;
 
 pub struct Connection {
   arguments: ConnectionArgs,

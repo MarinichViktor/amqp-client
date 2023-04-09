@@ -1,5 +1,5 @@
 use log::{info};
-use amqp_client::{Result, ConnectionFactory, Fields};
+use amqp_client::{Result, ConnectionFactory};
 use amqp_client::protocol::types::{UShort, Short};
 
 const EXCHANGE: &str = "my-exchange";
