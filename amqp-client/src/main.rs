@@ -1,5 +1,5 @@
 use log::{info};
-use amqp_client::{Result, ConnectionFactory, Fields, def_class};
+use amqp_client::{Result, ConnectionFactory, Fields};
 use amqp_client::protocol::types::{UShort, Short};
 
 const EXCHANGE: &str = "my-exchange";
@@ -20,8 +20,8 @@ async fn main() -> Result<()> {
   //
   // let into = start.to_raw_repr();
   // println!("Start into {:?}", into);
-  return Ok(());
-
+  // return Ok(());
+  //
   let connection_uri = "amqp://user:password@localhost:5672/my_vhost";
   let mut connection = ConnectionFactory::create(connection_uri).await?;
   // let channel = connection.create_channel().await?;

@@ -6,7 +6,7 @@ use crate::protocol::enc::Encode;
 use crate::protocol::frame2::{Frame2, RawFrame};
 use crate::protocol::types::{LongStr, Property, ShortStr};
 use crate::connection::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT, PROTOCOL_HEADER};
-use crate::connection::options::ConnectionOpts;
+use crate::connection::options::ConnectionAddress;
 use crate::protocol::writer::FrameWriter;
 
 pub const DEFAULT_CHANNEL_ID: i16 = 0;
@@ -27,7 +27,7 @@ impl DefaultChannel {
     }
   }
 
-  pub async fn open(&mut self, options: ConnectionOpts) {
+  pub async fn open(&mut self, options: ConnectionAddress) {
     let mut inner_rx = self.channel_notifier.take().unwrap();
 
     let writer = self.writer.clone();
