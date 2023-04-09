@@ -6,11 +6,9 @@ use bytes::{Buf, BytesMut};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::OwnedReadHalf;
 use crate::protocol::dec::Decode;
-use crate::protocol::frame::{BodyFrame, Frame, HeaderFrame, MethodFrame};
 use crate::{Result};
-use crate::protocol::frame2::{FrameKind, PendingFrame, RawFrame};
-use tokio::sync::mpsc;
-use url::form_urlencoded::parse;
+use crate::protocol::frame2::{PendingFrame};
+use crate::protocol::types::Frame;
 
 const FRAME_HEADER_SIZE: usize = 7;
 const FRAME_END_SIZE: usize = 1;
@@ -30,45 +28,46 @@ impl FrameReader {
     }
   }
 
-  pub async fn next_frame(&mut self) -> Result<FrameKind> {
+  pub async fn next_frame(&mut self) -> Result<Frame> {
     loop {
       if let Some(amqp_frame) = self.parse_frame()? {
-        let result = match amqp_frame {
-          Frame::Method(method) => {
-            if !method.has_content() {
-              let raw_frame = RawFrame::new(method.chan, method.class_id, method.method_id, method.body, None, None);
-              Some(FrameKind::Method(raw_frame))
-            } else {
-              self.pending_frames.lock().unwrap().insert(method.chan, PendingFrame::new(method));
-              None
-            }
-          }
-          Frame::Header(header) => {
-            let ch = header.chan;
-            let mut pending = self.pending_frames.lock().unwrap();
-            pending.get_mut(&ch).unwrap().header(header);
-            None
-          },
-          Frame::Body(mut frame) => {
-            let mut pending_frames = self.pending_frames.lock().unwrap();
-            let mut pending_frame = pending_frames.remove(&frame.chan).unwrap();
-            pending_frame.append_body(&mut frame.body);
-
-            if pending_frame.is_completed() {
-              Some(FrameKind::Method(pending_frame.into()))
-            } else {
-              pending_frames.insert(frame.chan, pending_frame);
-              None
-            }
-          },
-          Frame::Heartbeat => {
-            Some(FrameKind::Heartbeat)
-          }
-        };
-
-        if let Some(frame) = result {
-          return Ok(frame);
-        };
+        return Ok(amqp_frame);
+        // let result = match amqp_frame {
+        //   Frame::Method(method) => {
+        //     if !method.has_content() {
+        //       let raw_frame = RawFrame::new(method.chan, method.class_id, method.method_id, method.body, None, None);
+        //       Some(FrameKind::Method(raw_frame))
+        //     } else {
+        //       self.pending_frames.lock().unwrap().insert(method.chan, PendingFrame::new(method));
+        //       None
+        //     }
+        //   }
+        //   Frame::Header(header) => {
+        //     let ch = header.chan;
+        //     let mut pending = self.pending_frames.lock().unwrap();
+        //     pending.get_mut(&ch).unwrap().header(header);
+        //     None
+        //   },
+        //   Frame::Body(mut frame) => {
+        //     let mut pending_frames = self.pending_frames.lock().unwrap();
+        //     let mut pending_frame = pending_frames.remove(&frame.chan).unwrap();
+        //     pending_frame.append_body(&mut frame.body);
+        //
+        //     if pending_frame.is_completed() {
+        //       Some(FrameKind::Method(pending_frame.into()))
+        //     } else {
+        //       pending_frames.insert(frame.chan, pending_frame);
+        //       None
+        //     }
+        //   },
+        //   Frame::Heartbeat => {
+        //     Some(FrameKind::Heartbeat)
+        //   }
+        // };
+        //
+        // if let Some(frame) = result {
+        //   return Ok(frame);
+        // };
       }
 
       if !self.buf.is_empty() && self.has_frame()? {
@@ -105,7 +104,7 @@ impl FrameReader {
         let class_id = meta.read_short()?;
         let method_id = meta.read_short()?;
 
-        Frame::Method(MethodFrame { chan, class_id, method_id, body })
+        Frame::method(chan, class_id, method_id, &body)
       },
       2 => {
         let mut meta = Cursor::new(body[..12].to_vec());
@@ -113,22 +112,23 @@ impl FrameReader {
         let _weight = meta.read_short()?;
         let body_len = meta.read_long()?;
 
-        Frame::Header(HeaderFrame {
-          chan,
-          class_id,
-          body_len,
-          prop_list: body[12..].to_vec()
-        })
+        // Frame::Header(HeaderFrame {
+        //   chan,
+        //   class_id,
+        //   body_len,
+        //   prop_list: body[12..].to_vec()
+        // })
+        Frame::ContentHeader
       }
       3 => {
-        Frame::Body(BodyFrame { chan, body })
+        Frame::ContentBody
+        // Frame::Body(BodyFrame { chan, body })
       }
-      4 => {
+      8 => {
         Frame::Heartbeat
       },
-      // todo: fix this
       _ => {
-        Frame::Heartbeat
+        panic!("Unexpected frame")
       }
     };
 
