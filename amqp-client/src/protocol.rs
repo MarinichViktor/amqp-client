@@ -6,7 +6,6 @@ pub mod basic;
 pub (crate) mod reader;
 pub (crate) mod writer;
 pub mod frame2;
-pub mod amqp_connection;
 pub mod enc;
 pub mod dec;
 pub mod types;
@@ -30,7 +29,7 @@ macro_rules! define_amqp_classes {
         paste! {
           #[derive(Debug)]
           pub struct [<$class $method>] {
-            $($field : $type),+
+            $(pub(crate) $field : $type),+
           }
 
           impl [<$class $method>]  {
@@ -64,6 +63,10 @@ macro_rules! define_amqp_classes {
             pub fn method_id(&self) -> Short {
               $method_id
             }
+
+            pub fn into_frame(self) -> Frame {
+              Frame::[<$class $method>](self)
+            }
           }
         }
       )+
@@ -71,8 +74,50 @@ macro_rules! define_amqp_classes {
     paste! {
       pub enum Frame {
         $(
-          $([<$class $method>]([<$class $method>]) ),+
-        )+
+          $([<$class $method>]([<$class $method>])),+
+        )+,
+        ContentHeader,
+        ContentBody,
+        Heartbeat
+      }
+
+      impl Frame {
+        pub fn method(channel: Short, class_id: Short, method_id: Short, body: &[u8]) -> Self {
+          return match class_id {
+           $(
+              $class_id => {
+                match method_id {
+                  $(
+                    $method_id => {
+                      Frame::[<$class $method>]([<$class $method>]::from_raw_repr(body))
+                    }
+                  ),+
+                  _ => {
+                    panic!("Unsupported method")
+                  }
+                }
+              }
+           ),+
+           _ => {
+             panic!("Unsupported class")
+           }
+          }
+        }
+
+        pub fn to_raw_repr(self) -> Vec<u8> {
+          match self {
+            $(
+              $(
+                Frame::[<$class $method>](payload) => {
+                  payload.to_raw_repr()
+                }
+              )+
+            )+,
+            _ => {
+              todo!("implement")
+            }
+          }
+        }
       }
     }
   }
