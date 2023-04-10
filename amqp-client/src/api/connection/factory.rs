@@ -1,6 +1,6 @@
 use tokio::net::TcpStream;
 use crate::api::connection::options::ConnectionArgs;
-use super::{Connection, ConnectionAddress};
+use super::{Connection};
 use crate::Result;
 
 pub struct ConnectionFactory;
