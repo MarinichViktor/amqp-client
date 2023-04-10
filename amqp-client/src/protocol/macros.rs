@@ -120,8 +120,14 @@ macro_rules! define_amqp_classes {
                 }
               )+
             )+,
-            _ => {
-              todo!("implement")
+            Frame::ContentHeader(header) => {
+              header.to_raw_repr()
+            },
+            Frame::ContentBody(body) => {
+              body.to_raw_repr()
+            },
+            Frame::Heartbeat => {
+              todo!("impl to_raw_repr for heartbeat")
             }
           }
         }

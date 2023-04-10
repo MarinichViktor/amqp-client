@@ -7,7 +7,7 @@ use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::OwnedReadHalf;
 use crate::protocol::dec::Decode;
 use crate::{Result};
-use crate::protocol::types::{ChannelId, ContentBody, ContentHeader, Frame};
+use crate::protocol::types::{ChannelId, ContentBody, ContentHeader, Frame, Long};
 
 const FRAME_HEADER_SIZE: usize = 7;
 const FRAME_END_SIZE: usize = 1;
@@ -110,16 +110,9 @@ impl FrameReader {
         // todo: review type
         let body_len = meta.read_long()?;
 
-        // Frame::Header(HeaderFrame {
-        //   chan,
-        //   class_id,
-        //   body_len,
-        //   prop_list: body[12..].to_vec()
-        // })
-
         Frame::ContentHeader(ContentHeader {
           class_id,
-          body_len: body_len as u64,
+          body_len,
           prop_list: body[12..].to_vec().into()
         })
       }

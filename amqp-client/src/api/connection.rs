@@ -131,16 +131,15 @@ impl Connection {
             match payload {
               CommandPayload::RegisterResponder((channel, responder)) => {
                 channel_manager.register_responder(channel, responder);
-                acker.send(()).unwrap();
               },
               CommandPayload::RegisterChannel((id, incoming_tx)) => {
                 channel_manager.register_channel(id, incoming_tx);
-                acker.send(()).unwrap();
               },
               CommandPayload::RegisterConsumer(channel, consumer_tag, consumer_tx) => {
                 channel_manager.register_consumer(channel, consumer_tag, consumer_tx);
               }
             }
+            acker.send(()).unwrap();
           },
           frame = reader.next_frame() => {
             let (channel, frame) = frame.unwrap();
@@ -153,7 +152,7 @@ impl Connection {
                 let content_header = unwrap_frame_variant!(frame, ContentHeader);
                 pending_frames.insert(channel, pending_frame.with_content_header(content_header));
               },
-              Frame::ContentBody(body) => {
+              Frame::ContentBody(..) => {
                 let mut pending_frame = pending_frames.remove(&channel).unwrap();
                 let content_body = unwrap_frame_variant!(frame, ContentBody);
                 pending_frame = pending_frame.with_body(content_body);
@@ -168,7 +167,8 @@ impl Connection {
               Frame::ExchangeDeclareOk(..) |
               Frame::QueueDeclareOk(..) |
               Frame::QueueBindOk(..) |
-              Frame::QueueUnbindOk(..) => {
+              Frame::QueueUnbindOk(..) |
+              Frame::BasicConsumeOk(..) => {
                 channel_manager.get_responder(channel).send(frame).unwrap();
               }
               Frame::BasicDeliver(..) => {

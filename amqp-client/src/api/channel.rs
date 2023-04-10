@@ -3,7 +3,7 @@ use log::{info};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use crate::internal::channel::{Command, CommandPayload, Message};
-use crate::protocol::types::{AmqpMessage, BasicConsume, ChannelId, ChannelOpen, ExchangeDeclare, Frame, QueueBind, QueueDeclare, QueueUnbind, ShortStr};
+use crate::protocol::types::{AmqpMessage, BasicConsume, BasicPublish, ChannelId, ChannelOpen, ContentBody, ContentHeader, ExchangeDeclare, Frame, Long, QueueBind, QueueDeclare, QueueUnbind, ShortStr};
 use crate::{invoke_sync_method, invoke_command_async, Result, unwrap_frame_variant};
 use crate::api::exchange::{ExchangeDeclareOptsBuilder, ExchangeType};
 use crate::api::queue::QueueDeclareOptsBuilder;
@@ -169,13 +169,37 @@ impl AmqChannel {
     let consume_ok = unwrap_frame_variant!(frame, BasicConsumeOk);
 
     let (consumer_tx, consumer_rx) = mpsc::unbounded_channel();
-
     invoke_command_async!(self.command_tx, CommandPayload::RegisterConsumer(self.id, consume_ok.tag.0.clone(), consumer_tx));
-    info!("Consume ok with tag: {}", consume_ok.tag.0);
+    info!("consume ok with tag: {}", consume_ok.tag.0);
 
     Ok(consumer_rx)
   }
-//
+
+  pub async fn publish(&self, exchange: &str, routing_key: &str, message: Message) -> Result<()> {
+
+    info!("Publishing message");
+    let method = BasicPublish {
+      reserved1: 0,
+      exchange: exchange.into(),
+      routing_key: routing_key.into(),
+      flags: 0,
+    };
+    let header = ContentHeader {
+      class_id: 60,
+      body_len: message.content.len() as Long,
+      prop_list: message.properties,
+    };
+    let body = ContentBody(message.content);
+    self.outgoing_tx.send((self.id, method.into_frame())).unwrap();
+    self.outgoing_tx.send((self.id, header.into_frame())).unwrap();
+    self.outgoing_tx.send((self.id, body.into_frame())).unwrap();
+
+
+    info!("Message was published");
+
+    Ok(())
+  }
+
 //   pub async fn flow(&self, active: bool) -> Result<()> {
 //     use self::methods::Flow;
 //
@@ -192,29 +216,6 @@ impl AmqChannel {
 //
 
 
-//   pub async fn publish(&self, exchange: &str, routing_key: &str, payload: Vec<u8>, fields: Option<Fields>) -> Result<()> {
-//     use crate::protocol::basic::methods::{Publish};
-//
-//     info!("Publishing message");
-//     let method = Publish {
-//       reserved1: 0,
-//       exchange: exchange.into(),
-//       routing_key: routing_key.into(),
-//       flags: 0,
-//     };
-//     let frame = Frame2 {
-//       ch: self.id,
-//       args: method,
-//       prop_fields: fields,
-//       body: Some(payload)
-//     };
-//
-//     let mut writer = self.con_writer.lock().await;
-//     writer.send_raw_frame(frame.into()).await?;
-//     info!("Message was published");
-//
-//     Ok(())
-//   }
 //
 //   pub async fn close(&self) -> Result<()> {
 //     use crate::channel::methods::Close;

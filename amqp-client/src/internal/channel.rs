@@ -1,8 +1,8 @@
 use std::collections::{HashMap, VecDeque};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{oneshot};
 use tokio::sync::mpsc::{UnboundedSender};
 use crate::api::basic::fields::Fields;
-use crate::protocol::types::{Frame, AmqpMessage, ChannelId, ContentHeader, ContentBody};
+use crate::protocol::types::{Frame, AmqpMessage, ChannelId, ContentHeader, ContentBody, Long};
 
 pub type OneTimeSender = oneshot::Sender<Frame>;
 pub type AckSender = oneshot::Sender<()>;
@@ -54,7 +54,7 @@ impl ContentFrame {
   pub fn is_complete(&self) -> bool {
     match self {
       ContentFrame::WithBody((_,header,body)) => {
-        header.body_len <= body.0.len() as u64
+        header.body_len <= body.0.len() as Long
       }
       _ => {
         false
@@ -65,8 +65,8 @@ impl ContentFrame {
 
 #[derive(Debug)]
 pub struct Message {
-  pub props: Fields,
-  pub payload: Vec<u8>
+  pub properties: Fields,
+  pub content: Vec<u8>
 }
 
 pub (crate) struct ChannelManager {
@@ -117,9 +117,10 @@ impl ChannelManager {
       match frame {
         Frame::BasicDeliver(deliver) => {
           let consumer = channel_consumers.get_mut(&deliver.consumer_tag.0).unwrap();
+          // todo: add metadata to the message
           let message = Message {
-            props: header.prop_list,
-            payload: body.0
+            properties: header.prop_list,
+            content: body.0
           };
 
           consumer.send(message).unwrap();

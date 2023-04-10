@@ -1,6 +1,5 @@
 use std::io::Cursor;
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
 use crate::protocol::dec::Decode;
 use crate::protocol::enc::Encode;
 use crate::protocol::types::PropTable;

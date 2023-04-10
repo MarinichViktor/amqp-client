@@ -105,7 +105,7 @@ define_amqp_classes! {
   Basic(60) {
     Consume(20) { reserved1: Short, queue: ShortStr, tag: ShortStr, flags: Byte, props: PropTable, }
     ConsumeOk(21) { tag: ShortStr, }
-    Publish(40) { reserved: Short, exchange: ShortStr, routing_key: ShortStr, flags: Byte, }
+    Publish(40) { reserved1: Short, exchange: ShortStr, routing_key: ShortStr, flags: Byte, }
     Deliver(60) { consumer_tag: ShortStr, deliver_tag: ULong, redelivered: Byte, exhchange: ShortStr, routing_key: ShortStr, }
   }
 }
@@ -115,9 +115,50 @@ pub type AmqpMessage = (ChannelId, Frame);
 #[derive(Debug)]
 pub struct ContentHeader {
   pub class_id: Short,
-  pub body_len: ULong,
+  pub body_len: Long,
   pub prop_list: Fields,
+}
+
+impl ContentHeader {
+  pub fn from_raw_repr(mut buf: &[u8]) -> Self {
+    let class_id = buf.read_short().unwrap();
+    buf.read_short().unwrap();
+    let body_len = buf.read_long().unwrap();
+
+    Self {
+      class_id,
+      body_len,
+      prop_list: buf[12..].to_vec().into()
+    }
+  }
+
+  pub fn to_raw_repr(self) -> Vec<u8> {
+    let mut buf = vec![];
+    buf.write_short(self.class_id).unwrap();
+    buf.write_short(0).unwrap();
+    buf.write_long(self.body_len as Long).unwrap();
+    buf.append(&mut self.prop_list.into());
+    buf
+  }
+
+  pub fn into_frame(self) -> Frame {
+    Frame::ContentHeader(self)
+  }
 }
 
 #[derive(Debug)]
 pub struct ContentBody(pub Vec<u8>);
+
+impl ContentBody {
+  pub fn from_raw_repr(mut buf: &[u8]) -> Self {
+    Self(buf.to_vec())
+  }
+
+  pub fn to_raw_repr(self) -> Vec<u8> {
+    self.0
+  }
+
+  pub fn into_frame(self) -> Frame {
+    Frame::ContentBody(self)
+  }
+}
