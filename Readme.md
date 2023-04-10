@@ -9,7 +9,8 @@ For learning/research purpose.
   let mut connection = ConnectionFactory::create(connection_uri).await?;
 
   let channel = connection.create_channel().await?;
-  channel.declare_exchange("my-exchange", ExchangeType::Direct, true, false, false, false,None).await?;
+  channel.declare_exchange("my-exchange", ExchangeType::Direct, true, false,
+    false, false,None).await?;
 
   let queue = channel.declare_queue("", false, false, false, false, None).await?;
   channel.bind(&queue, "my-exchange", "my.key").await?;
