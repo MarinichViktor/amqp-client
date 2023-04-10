@@ -1,4 +1,5 @@
 use paste::paste;
+use super::types::{ContentHeader, ContentBody};
 
 #[macro_export]
 macro_rules! unwrap_frame_variant {
@@ -82,8 +83,8 @@ macro_rules! define_amqp_classes {
             [<$class $method>]([<$class $method>]),
           )+
         )+
-        ContentHeader,
-        ContentBody,
+        ContentHeader(ContentHeader),
+        ContentBody(ContentBody),
         Heartbeat
       }
 
@@ -137,6 +138,7 @@ macro_rules! invoke_command_async {
   ) => {
     use tokio::sync::oneshot;
     let (ack_tx, ack_rx) = oneshot::channel::<()>();
+    // todo: review
     $command_tx.send(($payload, ack_tx))?;
     ack_rx.await?;
   }

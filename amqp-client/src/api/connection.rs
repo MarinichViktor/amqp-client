@@ -7,13 +7,13 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::protocol::types::{AmqpMessage, ConnectionOpen, ConnectionStartOk, ConnectionTuneOk, LongStr, Property, ShortStr};
+use crate::protocol::types::{AmqpMessage, ChannelId, ConnectionOpen, ConnectionStartOk, ConnectionTuneOk, LongStr, Property, ShortStr};
 
 use crate::{invoke_command_async, Result, unwrap_frame_variant};
 use crate::api::channel::AmqChannel;
 use crate::api::connection::options::ConnectionArgs;
 use crate::api::connection::constants::PROTOCOL_HEADER;
-use crate::internal::channel::{Command, CommandPayload, ChannelManager};
+use crate::internal::channel::{Command, CommandPayload, ChannelManager, ContentFrame};
 use crate::protocol::PropTable;
 use self::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
 use crate::protocol::reader::FrameReader;
@@ -58,57 +58,18 @@ impl Connection {
     Ok(connection)
   }
 
-  fn spawn_connection_handlers(&self, mut reader: FrameReader, mut writer: FrameWriter, mut msg_rx: UnboundedReceiver<AmqpMessage>, mut cmd_rx: UnboundedReceiver<Command>) {
-    let mut channel_manager = ChannelManager::new();
+  pub async fn create_channel(&mut self) -> Result<AmqChannel> {
+    let id = self.id_allocator.allocate();
+    info!("create channel");
 
-    tokio::spawn(async move {
-      loop {
-        tokio::select! {
-          command = cmd_rx.recv() => {
-            let (payload, acker) = command.unwrap();
-            match payload {
-              CommandPayload::RegisterResponder((channel, responder)) => {
-                channel_manager.register_responder(channel, responder);
-                acker.send(()).unwrap();
-              },
-              CommandPayload::RegisterChannel((id, incoming_tx)) => {
-                channel_manager.register_channel(id, incoming_tx);
-                acker.send(()).unwrap();
-              },
-              CommandPayload::RegisterConsumer => {
-              }
-            }
-          },
-          frame = reader.next_frame() => {
-            let (channel, frame) = frame.unwrap();
-            match &frame {
-              Frame::Heartbeat => {
-                todo!("Do something with heartbeat");
-              },
-              Frame::ContentHeader | Frame::ContentBody => {
-                todo!("Add content handlers");
-              },
-              Frame::ChannelOpenOk(..) |
-              Frame::ExchangeDeclareOk(..) |
-              Frame::QueueDeclareOk(..) |
-              Frame::QueueBindOk(..) |
-              Frame::QueueUnbindOk(..) => {
-                channel_manager.get_responder(channel).send(frame).unwrap();
-              }
-              frame => {
-                println!("frame received {:?}", frame);
-              }
-            }
-          }
-        }
-      }
-    });
+    let (channel_tx, channel_rx) = mpsc::unbounded_channel();
 
-    tokio::spawn(async move {
-      while let Some((channel, frame)) = msg_rx.recv().await {
-        writer.dispatch(channel, frame).await.unwrap();
-      }
-    });
+    invoke_command_async!(self.command_tx, CommandPayload::RegisterChannel((id, channel_tx)));
+
+    let channel = AmqChannel::open(id, self.message_tx.clone(), channel_rx, self.command_tx.clone()).await?;
+
+    info!("channel created");
+    Ok(channel)
   }
 
   async fn handshake(&self, reader: &mut FrameReader, writer: &mut FrameWriter) -> Result<()> {
@@ -158,17 +119,75 @@ impl Connection {
     Ok(())
   }
 
-  pub async fn create_channel(&mut self) -> Result<AmqChannel> {
-    let id = self.id_allocator.allocate();
-    info!("create channel");
+  fn spawn_connection_handlers(&self, mut reader: FrameReader, mut writer: FrameWriter, mut msg_rx: UnboundedReceiver<AmqpMessage>, mut cmd_rx: UnboundedReceiver<Command>) {
+    let mut channel_manager = ChannelManager::new();
+    let mut pending_frames: HashMap<ChannelId, ContentFrame> = HashMap::new();
 
-    let (channel_tx, channel_rx) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+      loop {
+        tokio::select! {
+          command = cmd_rx.recv() => {
+            let (payload, acker) = command.unwrap();
+            match payload {
+              CommandPayload::RegisterResponder((channel, responder)) => {
+                channel_manager.register_responder(channel, responder);
+                acker.send(()).unwrap();
+              },
+              CommandPayload::RegisterChannel((id, incoming_tx)) => {
+                channel_manager.register_channel(id, incoming_tx);
+                acker.send(()).unwrap();
+              },
+              CommandPayload::RegisterConsumer(channel, consumer_tag, consumer_tx) => {
+                channel_manager.register_consumer(channel, consumer_tag, consumer_tx);
+              }
+            }
+          },
+          frame = reader.next_frame() => {
+            let (channel, frame) = frame.unwrap();
+            match &frame {
+              Frame::Heartbeat => {
+                todo!("Do something with heartbeat");
+              },
+              Frame::ContentHeader(..) => {
+                let pending_frame = pending_frames.remove(&channel).unwrap();
+                let content_header = unwrap_frame_variant!(frame, ContentHeader);
+                pending_frames.insert(channel, pending_frame.with_content_header(content_header));
+              },
+              Frame::ContentBody(body) => {
+                let mut pending_frame = pending_frames.remove(&channel).unwrap();
+                let content_body = unwrap_frame_variant!(frame, ContentBody);
+                pending_frame = pending_frame.with_body(content_body);
 
-    invoke_command_async!(self.command_tx, CommandPayload::RegisterChannel((id, channel_tx)));
+                if pending_frame.is_complete() {
+                  channel_manager.dispatch_content_frame(channel, pending_frame);
+                } else {
+                  pending_frames.insert(channel, pending_frame);
+                }
+              }
+              Frame::ChannelOpenOk(..) |
+              Frame::ExchangeDeclareOk(..) |
+              Frame::QueueDeclareOk(..) |
+              Frame::QueueBindOk(..) |
+              Frame::QueueUnbindOk(..) => {
+                channel_manager.get_responder(channel).send(frame).unwrap();
+              }
+              Frame::BasicDeliver(..) => {
+                pending_frames.insert(channel, ContentFrame::WithMethod(frame));
+              },
+              frame => {
+                println!("frame received {:?}", frame);
+              }
+            }
+          }
+        }
+      }
+    });
 
-    let channel = AmqChannel::open(id, self.message_tx.clone(), channel_rx, self.command_tx.clone()).await?;
-
-    info!("channel created");
-    Ok(channel)
+    tokio::spawn(async move {
+      while let Some((channel, frame)) = msg_rx.recv().await {
+        writer.dispatch(channel, frame).await.unwrap();
+      }
+    });
   }
+
 }

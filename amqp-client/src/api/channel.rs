@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use log::{info};
+use tokio::sync::mpsc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use crate::internal::channel::{Command, CommandPayload};
+use crate::internal::channel::{Command, CommandPayload, Message};
 use crate::protocol::types::{AmqpMessage, BasicConsume, ChannelId, ChannelOpen, ExchangeDeclare, Frame, QueueBind, QueueDeclare, QueueUnbind, ShortStr};
 use crate::{invoke_sync_method, invoke_command_async, Result, unwrap_frame_variant};
 use crate::api::exchange::{ExchangeDeclareOptsBuilder, ExchangeType};
@@ -154,26 +155,26 @@ impl AmqChannel {
     Ok(())
   }
 
-  // pub async fn consume(&self, queue: &str) -> Result<UnboundedReceiver<Frame>> {
-  //
-  //   info!("consuming queue: {}", queue.clone());
-  //   let method = BasicConsume {
-  //     reserved1: 0,
-  //     queue: queue.into(),
-  //     tag: "".into(),
-  //     flags: 0,
-  //     props: HashMap::new()
-  //   };
-  //
-  //   let frame = self.invoke_sync_method(method.into_frame()).await?;
-  //   let consume_ok = unwrap_frame_variant!(frame, BasicConsumeOk);
-  //
-  //   info!("Consume ok with tag: {}", consume_ok.tag.0);
-  //   let (tx, rx) = mpsc::unbounded_channel();
-  //   self.consumers.lock().unwrap().insert(payload.tag, tx);
-  //
-  //   Ok(rx)
-  // }
+  pub async fn consume(&self, queue: &str) -> Result<UnboundedReceiver<Message>> {
+    info!("consuming queue: {}", queue.clone());
+    let method = BasicConsume {
+      reserved1: 0,
+      queue: queue.into(),
+      tag: "".into(),
+      flags: 0,
+      props: HashMap::new()
+    };
+
+    let frame = self.invoke_sync_method(method.into_frame()).await?;
+    let consume_ok = unwrap_frame_variant!(frame, BasicConsumeOk);
+
+    let (consumer_tx, consumer_rx) = mpsc::unbounded_channel();
+
+    invoke_command_async!(self.command_tx, CommandPayload::RegisterConsumer(self.id, consume_ok.tag.0.clone(), consumer_tx));
+    info!("Consume ok with tag: {}", consume_ok.tag.0);
+
+    Ok(consumer_rx)
+  }
 //
 //   pub async fn flow(&self, active: bool) -> Result<()> {
 //     use self::methods::Flow;

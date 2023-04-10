@@ -1,7 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use tokio::sync::{mpsc, oneshot};
 use tokio::sync::mpsc::{UnboundedSender};
-use crate::protocol::types::{Frame, AmqpMessage, ChannelId};
+use crate::api::basic::fields::Fields;
+use crate::protocol::types::{Frame, AmqpMessage, ChannelId, ContentHeader, ContentBody};
 
 pub type OneTimeSender = oneshot::Sender<Frame>;
 pub type AckSender = oneshot::Sender<()>;
@@ -9,15 +10,69 @@ pub type AckSender = oneshot::Sender<()>;
 #[derive(Debug)]
 pub enum CommandPayload {
   RegisterResponder((ChannelId, oneshot::Sender<Frame>)),
-  RegisterChannel((ChannelId, mpsc::UnboundedSender<AmqpMessage>)),
-  RegisterConsumer,
+  RegisterChannel((ChannelId, UnboundedSender<AmqpMessage>)),
+  RegisterConsumer(ChannelId, String, UnboundedSender<Message>),
 }
 
 pub type Command = (CommandPayload, AckSender);
+
+#[derive(Debug)]
+pub enum ContentFrame {
+  WithMethod(Frame),
+  WithContentHeader((Frame, ContentHeader)),
+  WithBody((Frame, ContentHeader, ContentBody))
+}
+
+impl ContentFrame {
+  fn new(method: Frame) -> Self {
+    Self::WithMethod(method)
+  }
+
+  pub fn with_content_header(self, header: ContentHeader) -> Self {
+    if let ContentFrame::WithMethod(frame) = self {
+      Self::WithContentHeader((frame, header))
+    } else {
+      panic!("Invalid state transition")
+    }
+  }
+
+  pub fn with_body(self, mut body: ContentBody) -> Self {
+    match self {
+      ContentFrame::WithContentHeader((frame, header)) => {
+        Self::WithBody((frame, header, body))
+      },
+      ContentFrame::WithBody((frame, header, mut curr_body)) => {
+        curr_body.0.append(&mut body.0);
+        Self::WithBody((frame, header, curr_body))
+      },
+      _ => {
+        panic!("Invalid state transition")
+      }
+    }
+  }
+
+  pub fn is_complete(&self) -> bool {
+    match self {
+      ContentFrame::WithBody((_,header,body)) => {
+        header.body_len <= body.0.len() as u64
+      }
+      _ => {
+        false
+      }
+    }
+  }
+}
+
+#[derive(Debug)]
+pub struct Message {
+  pub props: Fields,
+  pub payload: Vec<u8>
+}
+
 pub (crate) struct ChannelManager {
   sync_waiters: HashMap<ChannelId, VecDeque<OneTimeSender>>,
   channel_dispatchers: HashMap<ChannelId, UnboundedSender<AmqpMessage>>,
-  consumers: HashMap<ChannelId, VecDeque<OneTimeSender>>,
+  consumers: HashMap<ChannelId, HashMap<String, UnboundedSender<Message>>>,
 }
 
 impl ChannelManager {
@@ -44,5 +99,38 @@ impl ChannelManager {
 
   pub fn register_channel(&mut self, channel: ChannelId, incoming_tx: UnboundedSender<AmqpMessage>) {
     self.channel_dispatchers.insert(channel, incoming_tx);
+  }
+
+  pub fn register_consumer(&mut self, channel: ChannelId, tag: String, consumer_tx: UnboundedSender<Message>) {
+    if !self.consumers.contains_key(&channel) {
+      self.consumers.insert(channel, Default::default());
+    }
+
+    let channel_consumers = self.consumers.get_mut(&channel).unwrap();
+    channel_consumers.insert(tag, consumer_tx);
+  }
+
+  pub fn dispatch_content_frame(&mut self, channel: ChannelId, frame: ContentFrame) {
+    if let ContentFrame::WithBody((frame, header, body)) = frame {
+      let channel_consumers = self.consumers.get_mut(&channel).unwrap();
+
+      match frame {
+        Frame::BasicDeliver(deliver) => {
+          let consumer = channel_consumers.get_mut(&deliver.consumer_tag.0).unwrap();
+          let message = Message {
+            props: header.prop_list,
+            payload: body.0
+          };
+
+          consumer.send(message).unwrap();
+        },
+        _ => {
+          todo!("to be implemented")
+        }
+      }
+
+    } else {
+      panic!("Invalid frame variant")
+    }
   }
 }

@@ -67,6 +67,7 @@ pub trait AmqpMethodArgs: TryInto<Vec<u8>, Error=crate::Error> + TryFrom<Vec<u8>
   fn method_id(&self) -> i16;
 }
 use paste::paste;
+use crate::api::basic::fields::Fields;
 use crate::protocol::dec::Decode;
 use crate::protocol::enc::Encode;
 
@@ -111,3 +112,12 @@ define_amqp_classes! {
 
 pub type AmqpMessage = (ChannelId, Frame);
 
+#[derive(Debug)]
+pub struct ContentHeader {
+  pub class_id: Short,
+  pub body_len: ULong,
+  pub prop_list: Fields,
+}
+
+#[derive(Debug)]
+pub struct ContentBody(pub Vec<u8>);
