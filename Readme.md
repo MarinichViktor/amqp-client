@@ -32,10 +32,10 @@ Start queue consumer
 ```rust
 let mut consumer_rx = channel.consume(queue.clone()).await?;
 tokio::spawn(async move {
-while let Some(delivery) = consumer_rx.recv().await {
-  // We assume that message is a valid utf8 string
-  println!("Received a message: {:?}", String::from_utf8(delivery.body.unwrap()));
-}
+    while let Some(delivery) = consumer_rx.recv().await {
+      // We assume that message is a valid utf8 string
+      println!("Received a message: {:?}", String::from_utf8(delivery.body.unwrap()));
+    }
 });
 ```
 
