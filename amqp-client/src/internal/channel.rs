@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use tokio::sync::{oneshot};
 use tokio::sync::mpsc::{UnboundedSender};
-use crate::api::basic::fields::Fields;
+use crate::api::basic::fields::MessageProperties;
 use crate::protocol::types::{Frame, AmqpMessage, ChannelId, ContentHeader, ContentBody, Long};
 
 pub type OneTimeSender = oneshot::Sender<Frame>;
@@ -65,7 +65,7 @@ impl ContentFrame {
 
 #[derive(Debug)]
 pub struct Message {
-  pub properties: Fields,
+  pub properties: MessageProperties,
   pub content: Vec<u8>
 }
 

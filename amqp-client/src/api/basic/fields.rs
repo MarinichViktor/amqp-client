@@ -11,7 +11,7 @@ pub enum MessageDeliveryMode {
 }
 
 #[derive(Default, Debug)]
-pub struct Fields {
+pub struct MessageProperties {
   pub content_type: Option<String>,
   pub content_encoding: Option<String>,
   pub headers: Option<PropTable>,
@@ -28,13 +28,13 @@ pub struct Fields {
   reserved: String
 }
 
-impl Fields {
+impl MessageProperties {
   pub fn new() -> Self {
     Default::default()
   }
 }
 
-impl Into<Vec<u8>> for Fields {
+impl Into<Vec<u8>> for MessageProperties {
   fn into(self) -> Vec<u8> {
     let mut result = vec![];
     let mut flag = 0_u16;
@@ -120,11 +120,11 @@ impl Into<Vec<u8>> for Fields {
   }
 }
 
-impl From<Vec<u8>> for Fields {
+impl From<Vec<u8>> for MessageProperties {
   fn from(mut data: Vec<u8>) -> Self {
     let mut cursor = Cursor::new(data);
     let flag = cursor.read_ushort().unwrap();
-    let mut fields = Fields::new();
+    let mut fields = MessageProperties::new();
     
     if (flag & 0b1000_0000_0000_0000 ) != 0 {
       fields.content_type = Some(cursor.read_shortstr().unwrap().0);

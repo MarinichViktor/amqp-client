@@ -1,46 +1,44 @@
 # RabbitMQ client
 For learning/research purpose.
 
-## To be done:
-- [x] Connection
-- [x] Channel
-- [X] Exchange
-- [x] Queue
-- [ ] Basic (In progress)
-- [ ] Tx
+## Example:
+1. Create connection, channel, exchange
 
-## Usage:
-
-Create connection and channel
 ```rust
-const EXCHANGE: &str = "my-exchange";
-const ROUTING_KEY: &str = "my.key";
+  let connection_uri = "amqp://user:password@localhost:5672/my_vhost";
+  let mut connection = ConnectionFactory::create(connection_uri).await?;
 
-let mut connection = ConnectionFactory::create("amqp://user:password@localhost:5672/my_vhost").await?;
-let channel = connection.create_channel().await?;
+  let channel = connection.create_channel().await?;
+  channel.declare_exchange("my-exchange", ExchangeType::Direct, true, false, false, false,None).await?;
+
+  let queue = channel.declare_queue("", false, false, false, false, None).await?;
+  channel.bind(&queue, "my-exchange", "my.key").await?;
+```
+2. Specify message content, properties, and publish to the server
+```rust
+  let mut properties = MessageProperties::new();
+  properties.content_type = Some("text/plain".into());
+  properties.timestamp = Some(
+   SystemTime::now()
+     .duration_since(SystemTime::UNIX_EPOCH)
+     .unwrap()
+  );
+
+  channel.publish("my-exchange", "my.key", Message {
+    properties,
+    content: "Hello world!".as_bytes().to_vec()
+  }).await?;
+  ...
+}
 ```
 
-
-Declare exchange, queue and bind them
+3. Create queue consumer
 ```rust
-channel.declare_exchange(EXCHANGE, ExchangeType::Direct, true, false, false, false,None).await?;
-let queue = channel.declare_queue("", false, false, false, false, None).await?;
-channel.bind(&queue, EXCHANGE, ROUTING_KEY).await?;
-```
-
-Start queue consumer
-```rust
-let mut consumer_rx = channel.consume(queue.clone()).await?;
-tokio::spawn(async move {
-    while let Some(delivery) = consumer_rx.recv().await {
-      // We assume that message is a valid utf8 string
-      println!("Received a message: {:?}", String::from_utf8(delivery.body.unwrap()));
+  let mut consumer_rx = channel.consume(&queue).await?;
+  tokio::spawn(async move {
+    while let Some(message) = consumer_rx.recv().await {
+      println!("Message:\n\t {}", String::from_utf8(message.content).unwrap());
+      println!("Properties:\n\t {:?}", message.properties);
     }
-});
+  });
 ```
-
-Publish message to the queue
-```rust
-channel.publish(EXCHANGE, ROUTING_KEY, "Hello world!".as_bytes().to_vec()).await?;
-```
-
