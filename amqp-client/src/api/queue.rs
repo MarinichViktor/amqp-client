@@ -1,8 +1,5 @@
 use std::collections::HashMap;
-use crate::protocol::types::PropTable;
-
-pub mod constants;
-pub mod methods;
+use crate::protocol::types::{PropTable, QueueDeclare, ShortStr};
 
 pub struct QueueDeclareOpts {
   pub name: String,
@@ -70,5 +67,43 @@ impl QueueDeclareOptsBuilder {
 
   pub fn props(&mut self, props: PropTable) {
     self.opts.props = props;
+  }
+}
+const PASSIVE_MASK: u8 = 0b01;
+const DURABLE_MASK: u8 = 0b10;
+const EXCLUSIVE_MASK: u8 = 0b100;
+const AUTODELETE_MASK: u8 = 0b1000;
+const NOWAIT_MASK: u8 = 0b10000;
+
+impl From<QueueDeclareOpts> for QueueDeclare {
+  fn from(options: QueueDeclareOpts) -> Self {
+    let mut flags = 0;
+
+    if options.passive {
+      flags = flags & PASSIVE_MASK;
+    }
+
+    if options.durable {
+      flags = flags & DURABLE_MASK;
+    }
+
+    if options.exclusive {
+      flags = flags & EXCLUSIVE_MASK;
+    }
+
+    if options.auto_delete {
+      flags = flags & AUTODELETE_MASK;
+    }
+
+    if options.no_wait {
+      flags = flags & NOWAIT_MASK;
+    }
+
+    Self {
+      reserved1: 0,
+      name: options.name.into(),
+      flags,
+      props: options.props
+    }
   }
 }
