@@ -29,8 +29,6 @@ For learning/research purpose.
     properties,
     content: "Hello world!".as_bytes().to_vec()
   }).await?;
-  ...
-}
 ```
 
 3. Create queue consumer
