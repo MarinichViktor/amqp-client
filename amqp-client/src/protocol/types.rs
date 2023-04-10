@@ -13,6 +13,7 @@ pub type Long = i64;
 pub type ULong = u64;
 pub type Float = f32;
 pub type Double = f64;
+pub type ChannelId = i16;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ShortStr(pub String);
@@ -31,6 +32,18 @@ impl From<&str> for ShortStr {
 
 #[derive(Default, Debug, Clone)]
 pub struct LongStr(pub String);
+
+impl From<String> for LongStr {
+  fn from(str: String) -> Self {
+    Self(str)
+  }
+}
+
+impl From<&str> for LongStr {
+  fn from(str: &str) -> Self {
+    Self(str.into())
+  }
+}
 
 #[derive(Debug, Clone)]
 pub enum Property {
@@ -53,19 +66,48 @@ pub trait AmqpMethodArgs: TryInto<Vec<u8>, Error=crate::Error> + TryFrom<Vec<u8>
   fn class_id(&self) -> i16;
   fn method_id(&self) -> i16;
 }
-
 use paste::paste;
 use crate::protocol::dec::Decode;
 use crate::protocol::enc::Encode;
 
 define_amqp_classes! {
   Connection(10) {
-    Start(10) { ver_major: Byte, ver_minor: Byte, properties: PropTable, mechanisms: LongStr, locales: LongStr }
-    StartOk(11) { properties: PropTable, mechanism: ShortStr, response: LongStr, locale: ShortStr }
-    Tune(30) { chan_max: Short, frame_max: Int, heartbeat: Short }
-    TuneOk(31) { chan_max: Short, frame_max: Int, heartbeat: Short }
-    Open(40) { vhost: ShortStr, reserved1: ShortStr, reserved2: Byte }
-    OpenOk(41) { reserved1: ShortStr }
+    Start(10) { ver_major: Byte, ver_minor: Byte, properties: PropTable, mechanisms: LongStr, locales: LongStr, }
+    StartOk(11) { properties: PropTable, mechanism: ShortStr, response: LongStr, locale: ShortStr, }
+    Tune(30) { chan_max: Short, frame_max: Int, heartbeat: Short, }
+    TuneOk(31) { chan_max: Short, frame_max: Int, heartbeat: Short, }
+    Open(40) { vhost: ShortStr, reserved1: ShortStr, reserved2: Byte, }
+    OpenOk(41) { reserved1: ShortStr, }
+  }
+  Channel(20) {
+    Open(10) { reserved1: ShortStr, }
+    OpenOk(11) { reserved1: ShortStr, }
+    Flow(20) { active: Byte, }
+    FlowOk(21) { active: Byte, }
+    Close(40) { reply_code: Short, reply_text: ShortStr, class_id: Short, method_id: Short, }
+    CloseOk(40) { }
+  }
+  Exchange(40) {
+    Declare(10) { reserved1: Short, name: ShortStr, ty: ShortStr, flags: Byte, props: PropTable, }
+    DeclareOk(11) { }
+    Delete(20) { reserved1: ShortStr, name: ShortStr, del_if_unused: Byte, no_wait: Byte, }
+    DeleteOk(21) { }
+  }
+  Queue(50) {
+    Declare(10) { reserved1: Short, name: ShortStr, flags: Byte, props: PropTable, }
+    DeclareOk(11) { name: ShortStr, msg_count: Int, consumer_count: Int, }
+    Bind(20) { reserved1: Short, queue: ShortStr, exchange: ShortStr, routing_key: ShortStr, no_wait: Byte, table: PropTable, }
+    BindOk(21) { }
+    Unbind(50) { reserved1: Short, queue: ShortStr, exchange: ShortStr, routing_key: ShortStr, table: PropTable, }
+    UnbindOk(51) { }
+  }
+  Basic(60) {
+    Consume(20) { reserved1: Short, queue: ShortStr, tag: ShortStr, flags: Byte, props: PropTable, }
+    ConsumeOk(21) { tag: ShortStr, }
+    Publish(40) { reserved: Short, exchange: ShortStr, routing_key: ShortStr, flags: Byte, }
+    Deliver(60) { consumer_tag: ShortStr, deliver_tag: ULong, redelivered: Byte, exhchange: ShortStr, routing_key: ShortStr, }
   }
 }
+
+pub type AmqpMessage = (ChannelId, Frame);
 

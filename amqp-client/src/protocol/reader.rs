@@ -7,8 +7,7 @@ use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::OwnedReadHalf;
 use crate::protocol::dec::Decode;
 use crate::{Result};
-use crate::protocol::frame2::{PendingFrame};
-use crate::protocol::types::Frame;
+use crate::protocol::types::{ChannelId, Frame};
 
 const FRAME_HEADER_SIZE: usize = 7;
 const FRAME_END_SIZE: usize = 1;
@@ -16,7 +15,6 @@ const FRAME_END_SIZE: usize = 1;
 pub struct FrameReader {
   inner: BufReader<OwnedReadHalf>,
   buf: BytesMut,
-  pending_frames: Arc<Mutex<HashMap<i16, PendingFrame>>>,
 }
 
 impl FrameReader {
@@ -24,11 +22,10 @@ impl FrameReader {
     Self {
       inner,
       buf: BytesMut::with_capacity(128 * 1024),
-      pending_frames: Default::default(),
     }
   }
 
-  pub async fn next_frame(&mut self) -> Result<Frame> {
+  pub async fn next_frame(&mut self) -> Result<(ChannelId, Frame)> {
     loop {
       if let Some(amqp_frame) = self.parse_frame()? {
         return Ok(amqp_frame);
@@ -82,7 +79,7 @@ impl FrameReader {
     }
   }
 
-  fn parse_frame(&mut self) -> Result<Option<Frame>> {
+  fn parse_frame(&mut self) -> Result<Option<(ChannelId, Frame)>> {
     if !self.has_frame()? {
       return Ok(None);
     }
@@ -104,7 +101,7 @@ impl FrameReader {
         let class_id = meta.read_short()?;
         let method_id = meta.read_short()?;
 
-        Frame::method(chan, class_id, method_id, &body)
+        Frame::method(class_id, method_id, &body)
       },
       2 => {
         let mut meta = Cursor::new(body[..12].to_vec());
@@ -132,7 +129,7 @@ impl FrameReader {
       }
     };
 
-    Ok(Some(frame))
+    Ok(Some((chan, frame)))
   }
 
 

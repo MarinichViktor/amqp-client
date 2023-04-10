@@ -1,8 +1,7 @@
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::net::tcp::{OwnedWriteHalf};
-use crate::protocol::types::{AmqpMethodArgs, Frame};
+use crate::protocol::types::{ChannelId, Frame};
 use crate::{Result};
-use crate::protocol::frame2::{RawFrame};
 use crate::protocol::enc::Encode;
 
 pub struct FrameWriter {
@@ -14,7 +13,7 @@ impl FrameWriter {
     Self { inner }
   }
 
-  pub async fn send_frame(&mut self, channel: i16, frame: Frame) -> Result<()> {
+  pub async fn dispatch(&mut self, channel: ChannelId, frame: Frame) -> Result<()> {
     let mut payload = frame.to_raw_repr();
     let mut frame_buff = vec![];
 
