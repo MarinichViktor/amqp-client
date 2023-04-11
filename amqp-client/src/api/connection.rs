@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::time::{Duration};
 
 use log::{info};
 use tokio::io::{BufReader, BufWriter};
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::protocol::types::{ChannelId, LongStr, Property, ShortStr, PropTable};
@@ -141,7 +141,8 @@ impl Connection {
             let (channel, frame) = frame.unwrap();
             match &frame {
               Frame::Heartbeat => {
-                todo!("Do something with heartbeat");
+                info!("Heartbeat received");
+                // todo!("Do something with heartbeat");
               },
               Frame::ContentHeader(..) => {
                 let pending_frame = pending_frames.remove(&channel).unwrap();
@@ -179,9 +180,20 @@ impl Connection {
       }
     });
 
+    let heartbeat_interval = self.arguments.heartbeat_interval;
+
     tokio::spawn(async move {
-      while let Some((channel, frame)) = msg_rx.recv().await {
-        writer.dispatch(channel, frame).await.unwrap();
+      loop {
+        let wait_time = tokio::time::sleep(Duration::from_secs(heartbeat_interval as u64));
+
+        tokio::select! {
+          Some((channel, frame)) = msg_rx.recv() => {
+            writer.dispatch(channel, frame).await.unwrap();
+          },
+          _ = wait_time => {
+            writer.dispatch(0, Frame::Heartbeat).await.unwrap();
+          }
+        };
       }
     });
   }

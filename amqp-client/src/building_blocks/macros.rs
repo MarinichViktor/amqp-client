@@ -126,7 +126,7 @@ macro_rules! generate_protocol_methods {
               body.to_raw_repr()
             },
             Frame::Heartbeat => {
-              todo!("impl to_raw_repr for heartbeat")
+              vec![]
             }
           }
         }
