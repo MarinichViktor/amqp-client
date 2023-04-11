@@ -3,7 +3,7 @@ use log::{info};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use crate::building_blocks::{Command, CommandPayload};
 use crate::protocol::types::{ChannelId, Long, ShortStr, PropTable};
-use crate::{invoke_sync_method, invoke_command_async, Result, unwrap_frame_variant};
+use crate::{invoke_sync_method, invoke_command_async, Result, unwrap_frame_variant, MessageProperties};
 use crate::api::exchange::{ExchangeDeclareOptsBuilder, ExchangeType};
 use crate::api::queue::QueueDeclareOptsBuilder;
 use crate::protocol::message::{Message};
@@ -175,7 +175,7 @@ impl AmqChannel {
     Ok(consumer_rx)
   }
 
-  pub async fn publish(&self, exchange: &str, routing_key: &str, message: Message) -> Result<()> {
+  pub async fn publish(&self, exchange: &str, routing_key: &str, body: Vec<u8>, properties: MessageProperties) -> Result<()> {
 
     info!("Publishing message");
     let method = BasicPublish {
@@ -186,10 +186,10 @@ impl AmqChannel {
     };
     let header = ContentHeader {
       class_id: 60,
-      body_len: message.content.len() as Long,
-      prop_list: message.properties,
+      body_len: body.len() as Long,
+      prop_list: properties,
     };
-    let body = ContentBody(message.content);
+    let body = ContentBody(body);
     self.outgoing_tx.send((self.id, method.into_frame())).unwrap();
     self.outgoing_tx.send((self.id, header.into_frame())).unwrap();
     self.outgoing_tx.send((self.id, body.into_frame())).unwrap();

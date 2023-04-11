@@ -3,7 +3,8 @@ use tokio::sync::{oneshot};
 use tokio::sync::mpsc::{UnboundedSender};
 use crate::protocol::types::{ChannelId};
 use crate::protocol::frame::{FrameEnvelope, Frame, ContentFrame};
-use crate::protocol::message::Message;
+use crate::protocol::message::{Message, MessageMetadata};
+use crate::unwrap_frame_variant;
 
 pub (crate) struct ChannelManager {
   sync_waiters: HashMap<ChannelId, VecDeque<oneshot::Sender<Frame>>>,
@@ -46,7 +47,7 @@ impl ChannelManager {
     channel_consumers.insert(tag, consumer_tx);
   }
 
-  pub fn dispatch_content_frame(&mut self, channel: ChannelId, frame: ContentFrame) {
+  pub fn dispatch_content_frame(&mut self, channel: ChannelId, outgoing_tx: UnboundedSender<FrameEnvelope>, frame: ContentFrame) {
     if let ContentFrame::WithBody((frame, header, body)) = frame {
       let channel_consumers = self.consumers.get_mut(&channel).unwrap();
 
@@ -54,10 +55,14 @@ impl ChannelManager {
         Frame::BasicDeliver(deliver) => {
           let consumer = channel_consumers.get_mut(&deliver.consumer_tag.0).unwrap();
           // todo: add metadata to the message
-          let message = Message {
-            properties: header.prop_list,
-            content: body.0
-          };
+          let metadata = MessageMetadata::new(
+            deliver.deliver_tag,
+            deliver.redelivered,
+            deliver.exchange.0,
+            deliver.routing_key.0
+          );
+
+          let message = Message::new(channel, outgoing_tx, header.prop_list, metadata, body.0);
 
           consumer.send(message).unwrap();
         },

@@ -1,5 +1,6 @@
 use url::Url;
 
+#[derive(Debug)]
 pub struct ConnectionArgs {
   pub address: ConnectionAddress,
   pub max_channels: i16,
@@ -11,7 +12,7 @@ impl ConnectionArgs {
   pub fn new(uri: &str) -> Self {
     Self {
       address: ConnectionAddress::from(uri),
-      max_channels: 1024,
+      max_channels: 20,
       max_frame_size: 128*1024,
       heartbeat_interval: 60
     }
@@ -19,7 +20,7 @@ impl ConnectionArgs {
 }
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ConnectionAddress {
   pub host: String,
   pub port: u16,

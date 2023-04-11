@@ -18,10 +18,9 @@ async fn main() -> Result<()> {
   let mut consumer_rx = channel.consume(&queue).await?;
   tokio::spawn(async move {
     while let Some(message) = consumer_rx.recv().await {
-      println!("Message:\n\t{}", String::from_utf8(message.content).unwrap());
-      println!("Properties:\n\t{:?}", message.properties);
-      // todo: implement
-      // channel.ack()/nack();
+      println!("Message:\n\t{}", String::from_utf8(message.get_body().to_vec()).unwrap());
+      println!("Properties:\n\t{:?}", message.get_properties());
+      message.ack(false).unwrap();
     }
   });
 
@@ -29,12 +28,7 @@ async fn main() -> Result<()> {
   properties.content_type = Some("text/plain".into());
   properties.timestamp = Some(SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap());
 
-  let message = Message {
-    properties,
-    content: "Hello world!".as_bytes().to_vec()
-  };
-
-  channel.publish("my-exchange", "my.key", message).await?;
+  channel.publish("my-exchange", "my.key", "Hello world!".into(), properties).await?;
 
   println!("Waiting ...");
   let mut s = String::new();

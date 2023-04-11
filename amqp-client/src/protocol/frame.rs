@@ -42,7 +42,7 @@ generate_protocol_methods! {
     Consume(20) { reserved1: Short, queue: ShortStr, tag: ShortStr, flags: Byte, props: PropTable, }
     ConsumeOk(21) { tag: ShortStr, }
     Publish(40) { reserved1: Short, exchange: ShortStr, routing_key: ShortStr, flags: Byte, }
-    Deliver(60) { consumer_tag: ShortStr, deliver_tag: Long, redelivered: Byte, exhchange: ShortStr, routing_key: ShortStr, }
+    Deliver(60) { consumer_tag: ShortStr, deliver_tag: Long, redelivered: Bool, exchange: ShortStr, routing_key: ShortStr, }
     Ack(80) { delivery_tag: Long, multiple: Bool, }
     Reject(90) { delivery_tag: Long, requeue: Bool, }
   }

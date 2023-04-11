@@ -110,7 +110,6 @@ impl Connection {
 
     let (_, frame) = reader.next_frame().await?;
     let _open_ok_method = unwrap_frame_variant!(frame, ConnectionOpenOk);
-    info!("handshake completed");
 
     Ok(())
   }
@@ -118,6 +117,7 @@ impl Connection {
   fn spawn_connection_handlers(&self, mut reader: FrameReader, mut writer: FrameWriter, mut msg_rx: UnboundedReceiver<FrameEnvelope>, mut cmd_rx: UnboundedReceiver<Command>) {
     let mut channel_manager = ChannelManager::new();
     let mut pending_frames: HashMap<ChannelId, ContentFrame> = HashMap::new();
+    let outgoing_tx = self.message_tx.clone();
 
     tokio::spawn(async move {
       loop {
@@ -154,7 +154,7 @@ impl Connection {
                 pending_frame = pending_frame.with_body(content_body);
 
                 if pending_frame.is_complete() {
-                  channel_manager.dispatch_content_frame(channel, pending_frame);
+                  channel_manager.dispatch_content_frame(channel, outgoing_tx.clone(), pending_frame);
                 } else {
                   pending_frames.insert(channel, pending_frame);
                 }
@@ -171,7 +171,7 @@ impl Connection {
                 pending_frames.insert(channel, ContentFrame::WithMethod(frame));
               },
               frame => {
-                println!("frame received {:?}", frame);
+                todo!("handle frame {:?}", frame);
               }
             }
           }
@@ -185,5 +185,4 @@ impl Connection {
       }
     });
   }
-
 }

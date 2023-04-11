@@ -1,5 +1,8 @@
+use std::cell::Cell;
 use std::io::Cursor;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use anyhow::bail;
 use tokio::sync::mpsc::UnboundedSender;
 use crate::protocol::dec::Decode;
 use crate::protocol::enc::Encode;
@@ -8,27 +11,87 @@ use crate::protocol::types::{ChannelId, PropTable};
 use crate::Result;
 
 #[derive(Debug)]
+pub struct MessageMetadata {
+  delivery_tag: i64,
+  redelivered: bool,
+  exchange: String,
+  routing_key: String,
+}
+
+impl MessageMetadata {
+  pub fn new(
+    delivery_tag: i64,
+    redelivered: bool,
+    exchange: String,
+    routing_key: String
+  ) -> Self {
+    Self {
+      delivery_tag,
+      redelivered,
+      exchange,
+      routing_key
+    }
+  }
+}
+
+#[derive(Debug)]
 pub struct Message {
   channel: ChannelId,
   outgoing_tx: UnboundedSender<FrameEnvelope>,
-  pub properties: MessageProperties,
-  pub content: Vec<u8>
+  properties: MessageProperties,
+  metadata: MessageMetadata,
+  body: Vec<u8>,
+  is_processed: Cell<bool>
 }
 
 impl Message {
-  pub fn ack(&self, delivery_tag: i64, multiple: bool) -> Result<()> {
-    let method = BasicAck { delivery_tag, multiple };
+  pub fn new(
+    channel: ChannelId,
+    outgoing_tx: UnboundedSender<FrameEnvelope>,
+    properties: MessageProperties,
+    metadata: MessageMetadata,
+    body: Vec<u8>
+  ) -> Self {
+    Self {
+      channel,
+      outgoing_tx,
+      properties,
+      metadata,
+      body,
+      is_processed: Cell::new(false)
+    }
+  }
+
+  pub fn get_body(&self) -> &[u8] {
+    self.body.as_slice()
+  }
+
+  pub fn get_properties(&self) -> &MessageProperties {
+    &self.properties
+  }
+
+  pub fn ack(&self, multiple: bool) -> Result<()> {
+    if self.is_processed.get() {
+      bail!("Already processed")
+    }
+
+    let method = BasicAck { delivery_tag: self.metadata.delivery_tag, multiple };
     self.outgoing_tx.send((self.channel, method.into_frame()))?;
+    self.is_processed.set(true);
     Ok(())
   }
 
-  pub fn reject(&self, delivery_tag: i64, requeue: bool) -> Result<()> {
-    let method = BasicReject { delivery_tag, requeue };
+  pub fn reject(&self, requeue: bool) -> Result<()> {
+    if self.is_processed.get() {
+      bail!("Already processed")
+    }
+
+    let method = BasicReject { delivery_tag: self.metadata.delivery_tag, requeue };
     self.outgoing_tx.send((self.channel, method.into_frame()))?;
+    self.is_processed.set(true);
     Ok(())
   }
 }
-
 
 #[derive(Debug)]
 pub enum MessageDeliveryMode {
