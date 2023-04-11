@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use byteorder::{BigEndian, WriteBytesExt};
-use log::info;
 use crate::protocol::types::{LongStr, Property, ShortStr};
-use crate::{Result, Error};
+use crate::{Result};
 
 pub trait Encode {
   fn write_bool(&mut self, val: bool) -> Result<()>;

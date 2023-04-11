@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use crate::protocol::types::{PropTable, QueueDeclare, ShortStr};
+use crate::protocol::types::{PropTable};
+use crate::protocol::frame::{QueueDeclare};
 
 pub struct QueueDeclareOpts {
   pub name: String,

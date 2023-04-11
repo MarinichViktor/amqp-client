@@ -1,10 +1,5 @@
-use std::time::{Duration, SystemTime};
-use log::{info};
-use amqp_client::{Result, ConnectionFactory};
-use amqp_client::api::basic::fields::MessageProperties;
-
-use amqp_client::api::exchange::ExchangeType;
-use amqp_client::internal::channel::Message;
+use std::time::{SystemTime};
+use amqp_client::{Result, ConnectionFactory, ExchangeType, Message, MessageProperties};
 
 
 #[tokio::main]

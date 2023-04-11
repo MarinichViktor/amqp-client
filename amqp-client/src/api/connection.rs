@@ -7,19 +7,17 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::protocol::types::{AmqpMessage, ChannelId, ConnectionOpen, ConnectionStartOk, ConnectionTuneOk, LongStr, Property, ShortStr};
+use crate::protocol::types::{ChannelId, LongStr, Property, ShortStr, PropTable};
+use crate::protocol::frame::{Frame, FrameEnvelope, ConnectionOpen, ConnectionStartOk, ConnectionTuneOk, ContentFrame};
 
 use crate::{invoke_command_async, Result, unwrap_frame_variant};
 use crate::api::channel::AmqChannel;
 use crate::api::connection::options::ConnectionArgs;
 use crate::api::connection::constants::PROTOCOL_HEADER;
-use crate::internal::channel::{Command, CommandPayload, ChannelManager, ContentFrame};
-use crate::protocol::PropTable;
+use crate::building_blocks::{ChannelManager, Command, CommandPayload};
 use self::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
-use crate::protocol::reader::FrameReader;
-use crate::protocol::writer::FrameWriter;
+use crate::protocol::net::{FrameReader, FrameWriter};
 use crate::utils::IdAllocator;
-use crate::protocol::types::Frame;
 
 pub mod constants;
 pub mod factory;
@@ -30,9 +28,8 @@ pub use self::factory::ConnectionFactory;
 pub struct Connection {
   arguments: ConnectionArgs,
   id_allocator: IdAllocator,
-  message_tx: UnboundedSender<AmqpMessage>,
-  command_tx: UnboundedSender<Command>,
-  channel_manager: Arc<Mutex<ChannelManager>>
+  message_tx: UnboundedSender<FrameEnvelope>,
+  command_tx: UnboundedSender<Command>
 }
 
 impl Connection {
@@ -49,7 +46,6 @@ impl Connection {
       id_allocator: IdAllocator::new(),
       message_tx: msg_tx,
       command_tx,
-      channel_manager: Arc::new(Mutex::new(ChannelManager::new())),
     };
 
     connection.handshake(&mut reader, &mut writer).await?;
@@ -119,7 +115,7 @@ impl Connection {
     Ok(())
   }
 
-  fn spawn_connection_handlers(&self, mut reader: FrameReader, mut writer: FrameWriter, mut msg_rx: UnboundedReceiver<AmqpMessage>, mut cmd_rx: UnboundedReceiver<Command>) {
+  fn spawn_connection_handlers(&self, mut reader: FrameReader, mut writer: FrameWriter, mut msg_rx: UnboundedReceiver<FrameEnvelope>, mut cmd_rx: UnboundedReceiver<Command>) {
     let mut channel_manager = ChannelManager::new();
     let mut pending_frames: HashMap<ChannelId, ContentFrame> = HashMap::new();
 

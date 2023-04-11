@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use crate::protocol::types::{ExchangeDeclare, PropTable, ShortStr};
+use crate::protocol::types::{PropTable, ShortStr};
+use crate::protocol::frame::{ExchangeDeclare};
 
 pub enum ExchangeType {
   Direct,

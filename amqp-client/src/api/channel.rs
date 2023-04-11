@@ -1,22 +1,22 @@
 use std::collections::HashMap;
 use log::{info};
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use crate::internal::channel::{Command, CommandPayload, Message};
-use crate::protocol::types::{AmqpMessage, BasicConsume, BasicPublish, ChannelId, ChannelOpen, ContentBody, ContentHeader, ExchangeDeclare, Frame, Long, QueueBind, QueueDeclare, QueueUnbind, ShortStr};
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use crate::building_blocks::{Command, CommandPayload};
+use crate::protocol::types::{ChannelId, Long, ShortStr, PropTable};
 use crate::{invoke_sync_method, invoke_command_async, Result, unwrap_frame_variant};
 use crate::api::exchange::{ExchangeDeclareOptsBuilder, ExchangeType};
 use crate::api::queue::QueueDeclareOptsBuilder;
-use crate::protocol::PropTable;
+use crate::protocol::message::{Message};
+use crate::protocol::frame::{FrameEnvelope, Frame, BasicConsume, BasicPublish, ChannelOpen, ContentBody, ContentHeader, ExchangeDeclare, QueueBind, QueueDeclare, QueueUnbind, BasicAck, BasicReject};
 
 pub struct AmqChannel {
   pub id: ChannelId,
-  outgoing_tx: UnboundedSender<AmqpMessage>,
+  outgoing_tx: UnboundedSender<FrameEnvelope>,
   command_tx: UnboundedSender<Command>
 }
 
 impl AmqChannel {
-  fn spawn_incoming_msg_handler(&self, mut incoming_rx: UnboundedReceiver<AmqpMessage>) {
+  fn spawn_incoming_msg_handler(&self, mut incoming_rx: UnboundedReceiver<FrameEnvelope>) {
     tokio::spawn(async move {
       while let Some((_, frame)) = incoming_rx.recv().await {
         match frame {
@@ -30,8 +30,8 @@ impl AmqChannel {
 
   pub async fn open(
     id: ChannelId,
-    outgoing_tx: UnboundedSender<AmqpMessage>,
-    incoming_rx: UnboundedReceiver<AmqpMessage>,
+    outgoing_tx: UnboundedSender<FrameEnvelope>,
+    incoming_rx: UnboundedReceiver<FrameEnvelope>,
     command_tx: UnboundedSender<Command>,
   ) -> Result<Self> {
     let open_method = ChannelOpen { reserved1: ShortStr("".into()) }.into_frame();

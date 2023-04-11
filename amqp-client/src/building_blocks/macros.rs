@@ -1,5 +1,4 @@
 use paste::paste;
-use super::types::{ContentHeader, ContentBody};
 
 #[macro_export]
 macro_rules! unwrap_frame_variant {
@@ -15,7 +14,7 @@ macro_rules! unwrap_frame_variant {
 }
 
 #[macro_export]
-macro_rules! define_amqp_classes {
+macro_rules! generate_protocol_methods {
   (
     $(
       $class:ident($class_id:literal) {

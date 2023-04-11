@@ -3,7 +3,7 @@ use std::io::{Cursor};
 use byteorder::{BigEndian, ReadBytesExt};
 use log::{debug};
 use crate::protocol::types::{LongStr, Property, ShortStr};
-use crate::{Error, Result};
+use crate::{Result};
 
 pub trait Decode {
   fn read_bool(&mut self) -> Result<bool>;

@@ -1,6 +1,7 @@
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::net::tcp::{OwnedWriteHalf};
-use crate::protocol::types::{ChannelId, Frame};
+use crate::protocol::types::{ChannelId};
+use crate::protocol::frame::{Frame};
 use crate::{Result};
 use crate::protocol::enc::Encode;
 

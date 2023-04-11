@@ -1,13 +1,13 @@
-use std::collections::HashMap;
 use std::io::Cursor;
-use std::sync::{Arc, Mutex};
+use std::sync::{Mutex};
 use anyhow::bail;
 use bytes::{Buf, BytesMut};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::OwnedReadHalf;
 use crate::protocol::dec::Decode;
 use crate::{Result};
-use crate::protocol::types::{ChannelId, ContentBody, ContentHeader, Frame, Long};
+use crate::protocol::types::{ChannelId};
+use crate::protocol::frame::{ContentBody, ContentHeader, Frame};
 
 const FRAME_HEADER_SIZE: usize = 7;
 const FRAME_END_SIZE: usize = 1;
@@ -29,42 +29,6 @@ impl FrameReader {
     loop {
       if let Some(amqp_frame) = self.parse_frame()? {
         return Ok(amqp_frame);
-        // let result = match amqp_frame {
-        //   Frame::Method(method) => {
-        //     if !method.has_content() {
-        //       let raw_frame = RawFrame::new(method.chan, method.class_id, method.method_id, method.body, None, None);
-        //       Some(FrameKind::Method(raw_frame))
-        //     } else {
-        //       self.pending_frames.lock().unwrap().insert(method.chan, PendingFrame::new(method));
-        //       None
-        //     }
-        //   }
-        //   Frame::Header(header) => {
-        //     let ch = header.chan;
-        //     let mut pending = self.pending_frames.lock().unwrap();
-        //     pending.get_mut(&ch).unwrap().header(header);
-        //     None
-        //   },
-        //   Frame::Body(mut frame) => {
-        //     let mut pending_frames = self.pending_frames.lock().unwrap();
-        //     let mut pending_frame = pending_frames.remove(&frame.chan).unwrap();
-        //     pending_frame.append_body(&mut frame.body);
-        //
-        //     if pending_frame.is_completed() {
-        //       Some(FrameKind::Method(pending_frame.into()))
-        //     } else {
-        //       pending_frames.insert(frame.chan, pending_frame);
-        //       None
-        //     }
-        //   },
-        //   Frame::Heartbeat => {
-        //     Some(FrameKind::Heartbeat)
-        //   }
-        // };
-        //
-        // if let Some(frame) = result {
-        //   return Ok(frame);
-        // };
       }
 
       if !self.buf.is_empty() && self.has_frame()? {
@@ -123,7 +87,8 @@ impl FrameReader {
         Frame::Heartbeat
       },
       _ => {
-        panic!("Unexpected frame")
+        // unreachable;
+        unimplemented!("Unreachable");
       }
     };
 
