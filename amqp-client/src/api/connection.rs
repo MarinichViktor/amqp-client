@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::time::{Duration};
+use std::time::{Duration, SystemTime};
 
 use log::{info};
 use tokio::io::{BufReader, BufWriter};
@@ -118,9 +118,13 @@ impl Connection {
     let mut channel_manager = ChannelManager::new();
     let mut pending_frames: HashMap<ChannelId, ContentFrame> = HashMap::new();
     let outgoing_tx = self.message_tx.clone();
+    let heartbeat_interval = self.arguments.heartbeat_interval;
+    let mut last_heartbeat = SystemTime::now();
 
     tokio::spawn(async move {
       loop {
+        let timeout_delay = tokio::time::sleep(Duration::from_secs(heartbeat_interval as u64));
+
         tokio::select! {
           command = cmd_rx.recv() => {
             let (payload, acker) = command.unwrap();
@@ -137,8 +141,9 @@ impl Connection {
             }
             acker.send(()).unwrap();
           },
-          frame = reader.next_frame() => {
-            let (channel, frame) = frame.unwrap();
+          Ok((channel, frame)) = reader.next_frame() => {
+            last_heartbeat = SystemTime::now();
+
             match &frame {
               Frame::Heartbeat => {
                 info!("Heartbeat received");
@@ -175,22 +180,25 @@ impl Connection {
                 todo!("handle frame {:?}", frame);
               }
             }
+          },
+          _ = timeout_delay => {
+            if SystemTime::now().duration_since(last_heartbeat).unwrap().as_secs() >  heartbeat_interval as u64  * 2 {
+              todo!("close connection")
+            }
           }
         }
       }
     });
 
-    let heartbeat_interval = self.arguments.heartbeat_interval;
-
     tokio::spawn(async move {
       loop {
-        let wait_time = tokio::time::sleep(Duration::from_secs(heartbeat_interval as u64));
+        let heartbeat_delay = tokio::time::sleep(Duration::from_secs(heartbeat_interval as u64));
 
         tokio::select! {
           Some((channel, frame)) = msg_rx.recv() => {
             writer.dispatch(channel, frame).await.unwrap();
           },
-          _ = wait_time => {
+          _ = heartbeat_delay => {
             writer.dispatch(0, Frame::Heartbeat).await.unwrap();
           }
         };
