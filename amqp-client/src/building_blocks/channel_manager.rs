@@ -4,7 +4,7 @@ use tokio::sync::mpsc::{UnboundedSender};
 use crate::protocol::types::{ChannelId};
 use crate::protocol::frame::{FrameEnvelope, Frame, ContentFrame};
 use crate::protocol::message::{Message, MessageMetadata};
-use crate::unwrap_frame_variant;
+use crate::Result;
 
 pub (crate) struct ChannelManager {
   sync_waiters: HashMap<ChannelId, VecDeque<oneshot::Sender<Frame>>>,
@@ -14,6 +14,7 @@ pub (crate) struct ChannelManager {
 
 impl ChannelManager {
   pub fn new() -> Self {
+
     Self {
       sync_waiters: Default::default(),
       consumers: Default::default(),
@@ -74,5 +75,11 @@ impl ChannelManager {
     } else {
       panic!("Invalid frame variant")
     }
+  }
+
+  pub fn dispatch_channel_frame(&self, frame: FrameEnvelope) -> Result<()> {
+    let dispatcher = self.channel_dispatchers.get(&frame.0).unwrap();
+    dispatcher.send(frame)?;
+    Ok(())
   }
 }

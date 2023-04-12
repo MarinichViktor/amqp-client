@@ -7,7 +7,9 @@ use crate::{invoke_sync_method, invoke_command_async, Result, unwrap_frame_varia
 use crate::api::exchange::{ExchangeDeclareOptsBuilder, ExchangeType};
 use crate::api::queue::QueueDeclareOptsBuilder;
 use crate::protocol::message::{Message};
-use crate::protocol::frame::{FrameEnvelope, Frame, BasicConsume, BasicPublish, ChannelOpen, ContentBody, ContentHeader, ExchangeDeclare, QueueBind, QueueDeclare, QueueUnbind, BasicAck, BasicReject};
+use crate::protocol::frame::{FrameEnvelope, Frame, BasicConsume, BasicPublish, ChannelOpen,
+                             ContentBody, ContentHeader, ExchangeDeclare, QueueBind, QueueDeclare,
+                             QueueUnbind};
 
 pub struct AmqChannel {
   pub id: ChannelId,
@@ -16,18 +18,6 @@ pub struct AmqChannel {
 }
 
 impl AmqChannel {
-  fn spawn_incoming_msg_handler(&self, mut incoming_rx: UnboundedReceiver<FrameEnvelope>) {
-    tokio::spawn(async move {
-      while let Some((_, frame)) = incoming_rx.recv().await {
-        match frame {
-          _ => {
-            todo!("Implement handler")
-          }
-        }
-      }
-    });
-  }
-
   pub async fn open(
     id: ChannelId,
     outgoing_tx: UnboundedSender<FrameEnvelope>,
@@ -42,9 +32,22 @@ impl AmqChannel {
       command_tx
     };
 
-    channel.spawn_incoming_msg_handler(incoming_rx);
+    // channel.spawn_incoming_msg_handler(incoming_rx);
 
     Ok(channel)
+  }
+
+  // todo: do we need this?
+  fn spawn_incoming_msg_handler(&self, mut incoming_rx: UnboundedReceiver<FrameEnvelope>) {
+    tokio::spawn(async move {
+      while let Some((_, frame)) = incoming_rx.recv().await {
+        match frame {
+          _ => {
+            todo!("Implement handler")
+          }
+        }
+      }
+    });
   }
 
   pub async fn declare_exchange(

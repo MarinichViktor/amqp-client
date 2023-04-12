@@ -15,6 +15,8 @@ generate_protocol_methods! {
     TuneOk(31) { chan_max: Short, frame_max: Int, heartbeat: Short, }
     Open(40) { vhost: ShortStr, reserved1: ShortStr, reserved2: Byte, }
     OpenOk(41) { reserved1: ShortStr, }
+    Close(50) { reply_code: Short, reply_text: ShortStr, class_id: Short, method_id: Short, }
+    CloseOk(50) { }
   }
   Channel(20) {
     Open(10) { reserved1: ShortStr, }

@@ -4,16 +4,17 @@ use std::time::{Duration, SystemTime};
 use log::{info};
 use tokio::io::{BufReader, BufWriter};
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc};
+use tokio::sync::{broadcast, mpsc};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::protocol::types::{ChannelId, LongStr, Property, ShortStr, PropTable};
-use crate::protocol::frame::{Frame, FrameEnvelope, ConnectionOpen, ConnectionStartOk, ConnectionTuneOk, ContentFrame};
+use crate::protocol::frame::{Frame, FrameEnvelope, ConnectionOpen, ConnectionStartOk, ConnectionTuneOk, ContentFrame, ConnectionClose};
 
-use crate::{invoke_command_async, Result, unwrap_frame_variant};
+use crate::{invoke_command_async, invoke_sync_method, Result, unwrap_frame_variant};
 use crate::api::channel::AmqChannel;
 use crate::api::connection::options::ConnectionArgs;
 use crate::api::connection::constants::PROTOCOL_HEADER;
+use crate::api::default_channel::DefaultAmqChannel;
 use crate::building_blocks::{ChannelManager, Command, CommandPayload};
 use self::constants::{COPYRIGHT, DEFAULT_AUTH_MECHANISM, DEFAULT_LOCALE, INFORMATION, PLATFORM, PRODUCT};
 use crate::protocol::net::{FrameReader, FrameWriter};
@@ -24,12 +25,12 @@ pub mod factory;
 pub mod options;
 pub use self::factory::ConnectionFactory;
 
-
 pub struct Connection {
   arguments: ConnectionArgs,
   id_allocator: IdAllocator,
   message_tx: UnboundedSender<FrameEnvelope>,
-  command_tx: UnboundedSender<Command>
+  command_tx: UnboundedSender<Command>,
+  close_tx: broadcast::Sender<()>,
 }
 
 impl Connection {
@@ -40,12 +41,14 @@ impl Connection {
 
     let (msg_tx, msg_rx) = mpsc::unbounded_channel();
     let (command_tx, command_rx) = mpsc::unbounded_channel();
+    let (close_tx, close_rx) = broadcast::channel::<()>(1);
 
     let connection = Self {
       arguments: args,
       id_allocator: IdAllocator::new(),
       message_tx: msg_tx,
       command_tx,
+      close_tx
     };
 
     connection.handshake(&mut reader, &mut writer).await?;
@@ -66,6 +69,19 @@ impl Connection {
 
     info!("channel created");
     Ok(channel)
+  }
+
+  pub async fn close(&self) -> Result<()> {
+    // todo!("provide reply code and text");
+    let method = ConnectionClose {
+      reply_code: 300,
+      reply_text: "Connection close".into(),
+      class_id: 0,
+      method_id: 0,
+    };
+    // invoke_sync_method!(0, self.command_tx, self.message_tx, method.into_frame()).await?;
+    self.message_tx.send((0, method.into_frame())).unwrap();
+    Ok(())
   }
 
   async fn handshake(&self, reader: &mut FrameReader, writer: &mut FrameWriter) -> Result<()> {
@@ -114,20 +130,37 @@ impl Connection {
     Ok(())
   }
 
-  fn spawn_connection_handlers(&self, mut reader: FrameReader, mut writer: FrameWriter, mut msg_rx: UnboundedReceiver<FrameEnvelope>, mut cmd_rx: UnboundedReceiver<Command>) {
+  fn spawn_connection_handlers(
+    &self,
+    mut reader: FrameReader,
+    mut writer: FrameWriter,
+    mut outgoing_rx: UnboundedReceiver<FrameEnvelope>,
+    mut command_rx: UnboundedReceiver<Command>
+  ) {
     let mut channel_manager = ChannelManager::new();
+
+    let (channel_tx, channel_rx) = mpsc::unbounded_channel();
+    let default_channel = DefaultAmqChannel::open(
+      self.message_tx.clone(),
+      channel_rx,
+      self.close_tx.clone()
+    ).unwrap();
+    channel_manager.register_channel(default_channel.id, channel_tx);
+
     let mut pending_frames: HashMap<ChannelId, ContentFrame> = HashMap::new();
-    let outgoing_tx = self.message_tx.clone();
     let heartbeat_interval = self.arguments.heartbeat_interval;
-    let mut last_heartbeat = SystemTime::now();
+    let mut close_tx = self.close_tx.clone();
+    let mut close_rx = self.close_tx.subscribe();
+
+    let outgoing_tx = self.message_tx.clone();
 
     tokio::spawn(async move {
+      let mut last_heartbeat = SystemTime::now();
       loop {
         let timeout_delay = tokio::time::sleep(Duration::from_secs(heartbeat_interval as u64));
 
         tokio::select! {
-          command = cmd_rx.recv() => {
-            let (payload, acker) = command.unwrap();
+          Some((payload, acker)) = command_rx.recv() => {
             match payload {
               CommandPayload::RegisterResponder((channel, responder)) => {
                 channel_manager.register_responder(channel, responder);
@@ -148,12 +181,12 @@ impl Connection {
               Frame::Heartbeat => {
                 info!("Heartbeat received");
                 // todo!("Do something with heartbeat");
-              },
+              }
               Frame::ContentHeader(..) => {
                 let pending_frame = pending_frames.remove(&channel).unwrap();
                 let content_header = unwrap_frame_variant!(frame, ContentHeader);
                 pending_frames.insert(channel, pending_frame.with_content_header(content_header));
-              },
+              }
               Frame::ContentBody(..) => {
                 let mut pending_frame = pending_frames.remove(&channel).unwrap();
                 let content_body = unwrap_frame_variant!(frame, ContentBody);
@@ -175,31 +208,46 @@ impl Connection {
               }
               Frame::BasicDeliver(..) => {
                 pending_frames.insert(channel, ContentFrame::WithMethod(frame));
-              },
-              frame => {
-                todo!("handle frame {:?}", frame);
+              }
+              _ => {
+                if channel == 0 {
+                  channel_manager.dispatch_channel_frame((channel, frame)).unwrap();
+                } else {
+                  todo!("handle frame {:?}", frame);
+                }
               }
             }
           },
           _ = timeout_delay => {
             if SystemTime::now().duration_since(last_heartbeat).unwrap().as_secs() >  heartbeat_interval as u64  * 2 {
-              todo!("close connection")
+              println!("Missing heartbeat");
+              close_tx.send(()).unwrap();
             }
+          },
+          _ = close_rx.recv() => {
+            info!("Exit reader loop");
+            break;
           }
         }
       }
     });
 
+    let mut close_rx = self.close_tx.subscribe();
     tokio::spawn(async move {
       loop {
         let heartbeat_delay = tokio::time::sleep(Duration::from_secs(heartbeat_interval as u64));
 
         tokio::select! {
-          Some((channel, frame)) = msg_rx.recv() => {
+          Some((channel, frame)) = outgoing_rx.recv() => {
             writer.dispatch(channel, frame).await.unwrap();
           },
           _ = heartbeat_delay => {
+            info!("Heartbeat delivered");
             writer.dispatch(0, Frame::Heartbeat).await.unwrap();
+          },
+          _ = close_rx.recv() => {
+            info!("Exit writer loop");
+            break;
           }
         };
       }
