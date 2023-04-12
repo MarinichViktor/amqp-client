@@ -71,11 +71,11 @@ impl Connection {
     Ok(channel)
   }
 
-  pub async fn close(&self) -> Result<()> {
+  pub async fn close(self) -> Result<()> {
     // todo!("provide reply code and text");
     let method = ConnectionClose {
-      reply_code: 300,
-      reply_text: "Connection close".into(),
+      reply_code: 0,
+      reply_text: "Connection closed".into(),
       class_id: 0,
       method_id: 0,
     };
@@ -149,7 +149,7 @@ impl Connection {
 
     let mut pending_frames: HashMap<ChannelId, ContentFrame> = HashMap::new();
     let heartbeat_interval = self.arguments.heartbeat_interval;
-    let mut close_tx = self.close_tx.clone();
+    let close_tx = self.close_tx.clone();
     let mut close_rx = self.close_tx.subscribe();
 
     let outgoing_tx = self.message_tx.clone();
@@ -225,11 +225,11 @@ impl Connection {
             }
           },
           _ = close_rx.recv() => {
-            info!("Exit reader loop");
             break;
           }
         }
       }
+      info!("exit reader loop");
     });
 
     let mut close_rx = self.close_tx.subscribe();
@@ -242,15 +242,16 @@ impl Connection {
             writer.dispatch(channel, frame).await.unwrap();
           },
           _ = heartbeat_delay => {
-            info!("Heartbeat delivered");
+            info!("heartbeat delivered");
             writer.dispatch(0, Frame::Heartbeat).await.unwrap();
           },
           _ = close_rx.recv() => {
-            info!("Exit writer loop");
             break;
           }
         };
       }
+
+      info!("exit writer loop");
     });
   }
 }

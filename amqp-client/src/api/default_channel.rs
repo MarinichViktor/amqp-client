@@ -45,6 +45,8 @@ impl DefaultAmqChannel {
           }
         }
       }
+
+      info!("exited default channel loop");
     });
   }
 }

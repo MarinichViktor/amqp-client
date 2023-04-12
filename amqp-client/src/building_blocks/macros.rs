@@ -99,7 +99,8 @@ macro_rules! generate_protocol_methods {
                     }
                   ),+
                   _ => {
-                    panic!("Unsupported method")
+                    // todo: describe all method to make this branch not reachable
+                    unimplemented!("not reachable")
                   }
                 }
               }

@@ -16,7 +16,7 @@ generate_protocol_methods! {
     Open(40) { vhost: ShortStr, reserved1: ShortStr, reserved2: Byte, }
     OpenOk(41) { reserved1: ShortStr, }
     Close(50) { reply_code: Short, reply_text: ShortStr, class_id: Short, method_id: Short, }
-    CloseOk(50) { }
+    CloseOk(51) { }
   }
   Channel(20) {
     Open(10) { reserved1: ShortStr, }
